@@ -104,7 +104,6 @@ int main(int argc, char **argv) {
     market_init(&m);
     portfolio_init(&you, "You", START_CASH);
     bots_init_all(bots);
-    market_step(&m);   /* day 1 */
     show_day(&m, &you);
 
     while (running) {
@@ -113,7 +112,7 @@ int main(int argc, char **argv) {
         switch (choice) {
             case 0: running = 0; break;
             case 1: show_day(&m, &you); break;
-            case 2: { long s; if (!pick_stock(&s)) running = 0; else print_chart(&m.stocks[s]); break; }
+            case 2: { long s = 0; if (!pick_stock(&s)) running = 0; else print_chart(&m.stocks[s]); break; }
             case 3: if (!do_buy(&you, &m)) running = 0; break;
             case 4: if (!do_sell(&you, &m)) running = 0; break;
             case 5: print_portfolio(&you, &m); break;
@@ -131,15 +130,7 @@ int main(int argc, char **argv) {
     all[0] = &you;
     for (i = 0; i < NUM_BOTS; i++) all[i + 1] = &bots[i].p;
     print_leaderboard(all, NUM_BOTS + 1, &m);
-    {
-        int best = 0;
-        long v, bv = -1;
-        for (i = 0; i < NUM_BOTS + 1; i++) {
-            v = portfolio_value(all[i], &m);
-            if (v > bv) { bv = v; best = i; }
-        }
-        if (best == 0) printf("Did skill or luck win this one? Try another seed.\n");
-        else printf("Markets are risky — that's the point.\n");
-    }
+    if (portfolio_value(&you, &m) < START_CASH) printf("Markets are risky - that's the point.\n");
+    else printf("Did skill or luck win this one? Try another seed.\n");
     return 0;
 }
