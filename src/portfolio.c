@@ -14,9 +14,10 @@ void portfolio_init(Portfolio *p, const char *name, long cash) {
 
 int portfolio_buy(Portfolio *p, const Market *m, int stock, long qty) {
     if (!valid_order(stock, qty)) return TRADE_BAD_INPUT;
-    long cost = m->stocks[stock].price * qty;
-    if (cost > p->cash) return TRADE_NO_CASH;
-    p->cash -= cost;
+    long price = m->stocks[stock].price;
+    if (price <= 0) return TRADE_BAD_INPUT;
+    if (qty > p->cash / price) return TRADE_NO_CASH;   /* divide first: no overflow on 32-bit long */
+    p->cash -= price * qty;                            /* safe: price * qty <= cash */
     p->shares[stock] += qty;
     return TRADE_OK;
 }
@@ -25,14 +26,14 @@ int portfolio_sell(Portfolio *p, const Market *m, int stock, long qty) {
     if (!valid_order(stock, qty)) return TRADE_BAD_INPUT;
     if (qty > p->shares[stock]) return TRADE_NO_SHARES;
     p->shares[stock] -= qty;
-    p->cash += m->stocks[stock].price * qty;
+    p->cash = (long)((long long)p->cash + (long long)m->stocks[stock].price * qty);
     return TRADE_OK;
 }
 
 long portfolio_value(const Portfolio *p, const Market *m) {
-    long total = p->cash;
-    for (int i = 0; i < NUM_STOCKS; i++) total += p->shares[i] * m->stocks[i].price;
-    return total;
+    long long total = p->cash;
+    for (int i = 0; i < NUM_STOCKS; i++) total += (long long)p->shares[i] * m->stocks[i].price;
+    return (long)total;
 }
 
 long max_affordable(const Portfolio *p, const Market *m, int stock) {
