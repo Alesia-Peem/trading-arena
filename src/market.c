@@ -40,7 +40,7 @@ void market_init(Market *m) {
 }
 
 long apply_change(long price, int change_bp) {
-    long p = price * (10000L + change_bp) / 10000L;
+    long p = (long)((long long)price * (10000LL + change_bp) / 10000LL);
     return p < PRICE_FLOOR ? PRICE_FLOOR : p;
 }
 

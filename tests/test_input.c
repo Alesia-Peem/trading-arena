@@ -14,6 +14,6 @@ static void test_parse_rejects_out_of_range(void) { long v;
 
 int main(void) {
     test_parse_ok(); test_parse_rejects_garbage(); test_parse_rejects_out_of_range();
-    printf("ALL PASSED\n");
+    printf("test_input: ALL PASSED\n");
     return 0;
 }

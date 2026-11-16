@@ -16,9 +16,16 @@ static void test_range_hits_both_ends(void) {
     assert(lo && hi);
 }
 static void test_range_single_value(void) { assert(rng_range(5, 5) == 5); }
+static void test_known_values(void) {
+    /* LCG: s = (s*1103515245 + 12345) & 0xFFFFFFFF; out = (s/65536) % 32768 */
+    rng_seed(42);
+    assert(rng_next() == 19081UL);
+    assert(rng_next() == 17033UL);
+    assert(rng_next() == 15269UL);
+}
 
 int main(void) {
-    test_same_seed_same_sequence(); test_range_stays_inside();
+    test_known_values(); test_same_seed_same_sequence(); test_range_stays_inside();
     test_range_hits_both_ends(); test_range_single_value();
     printf("test_rng: ALL PASSED\n"); return 0;
 }

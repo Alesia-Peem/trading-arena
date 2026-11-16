@@ -65,7 +65,7 @@ static int do_sell(Portfolio *you, const Market *m) {
 
 static void bots_turn(Bot bots[NUM_BOTS], const Market *m) {
     int i, s;
-    printf("\n-- Bots --\n");
+    printf("\n-- Bots (day %d) --\n", m->day);
     for (i = 0; i < NUM_BOTS; i++) {
         long before[NUM_STOCKS];
         char line[256];
@@ -83,7 +83,7 @@ static void bots_turn(Bot bots[NUM_BOTS], const Market *m) {
             any = 1;
         }
         if (any) printf("%s\n", line);
-        else printf("%s held\n", line);
+        else printf("%s no trades\n", line);
     }
 }
 
@@ -119,8 +119,8 @@ int main(int argc, char **argv) {
             case 6:
                 if (m.day >= NUM_DAYS) { running = 0; break; }
                 market_step(&m);
-                bots_turn(bots, &m);
                 show_day(&m, &you);
+                bots_turn(bots, &m);
                 if (m.day >= NUM_DAYS) running = 0;
                 break;
         }

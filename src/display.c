@@ -51,10 +51,11 @@ int render_chart(const long *hist, int len, int rows, char *buf, size_t n) {
 }
 
 /* basis points -> "+2.35%" / "-0.80%" / "0.00%" */
-static void format_bp(long long bp, char *out, size_t n) {
-    long long a = bp < 0 ? -bp : bp;
+static void format_bp(long long bp_in, char *out, size_t n) {
+    long bp = (long)bp_in;
+    long a = bp < 0 ? -bp : bp;
     const char *sign = bp > 0 ? "+" : (bp < 0 ? "-" : "");
-    snprintf(out, n, "%s%lld.%02lld%%", sign, a / 100, a % 100);
+    snprintf(out, n, "%s%ld.%02ld%%", sign, a / 100, a % 100);
 }
 
 void print_market(const Market *m) {
