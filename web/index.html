@@ -17,7 +17,8 @@
       </div>
 
       <div class="progress" aria-live="polite">
-        <p class="progress-label"><span id="day-text">Day 0 of 30</span></p>
+        <p class="progress-label" id="day-text">Day 0 of 30</p>
+        <!-- 30 segments, one per trading day (drawn by CSS) -->
         <div class="meter" aria-hidden="true"><div class="meter-fill" id="day-meter"></div></div>
       </div>
 
@@ -41,11 +42,20 @@
   </div>
 
   <main class="layout" id="app" aria-busy="true">
+    <!-- The race: you against the 3 bots, ranked by net worth. -->
+    <section class="standings" aria-labelledby="board-title">
+      <h2 class="sr-only" id="board-title">Leaderboard</h2>
+      <ol class="board standings-list" id="leaderboard">
+        <li class="skeleton-tile"></li><li class="skeleton-tile"></li>
+        <li class="skeleton-tile"></li><li class="skeleton-tile"></li>
+      </ol>
+    </section>
+
     <div class="col-main">
-      <section class="card" aria-labelledby="market-title">
-        <div class="card-head">
+      <section class="panel market" aria-labelledby="market-title">
+        <div class="panel-head">
           <h2 id="market-title">Market</h2>
-          <p class="card-note">Pick a stock to see its chart. Keys 1 to 5 work too.</p>
+          <p class="note">Pick a stock to see its chart. Keys 1 to 5 work too.</p>
         </div>
         <div class="stock-list" id="stock-list">
           <div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>
@@ -53,11 +63,11 @@
         </div>
       </section>
 
-      <section class="card chart-card" aria-labelledby="chart-title">
+      <section class="panel chart-card" aria-labelledby="chart-title">
         <div class="chart-head">
           <div>
             <h2 id="chart-title">&nbsp;</h2>
-            <p class="card-note" id="chart-subtitle">&nbsp;</p>
+            <p class="note" id="chart-subtitle">&nbsp;</p>
           </div>
           <div class="chart-price">
             <p class="big-number" id="chart-price">&nbsp;</p>
@@ -75,7 +85,7 @@
     </div>
 
     <aside class="col-side">
-      <section class="card" aria-labelledby="trade-title">
+      <section class="panel trade-panel" aria-labelledby="trade-title">
         <h2 id="trade-title">Trade</h2>
         <form class="trade-form" id="trade-form" novalidate>
           <div class="field">
@@ -95,7 +105,7 @@
         </form>
       </section>
 
-      <section class="card" aria-labelledby="account-title">
+      <section class="plain account" aria-labelledby="account-title">
         <h2 id="account-title">Your account</h2>
         <p class="big-number" id="net-worth">&nbsp;</p>
         <p class="change" id="net-change">&nbsp;</p>
@@ -107,12 +117,7 @@
         <ul class="holdings" id="holdings"></ul>
       </section>
 
-      <section class="card" aria-labelledby="board-title">
-        <h2 id="board-title">Leaderboard</h2>
-        <ol class="board" id="leaderboard"></ol>
-      </section>
-
-      <section class="card" aria-labelledby="bots-title">
+      <section class="plain bots-panel" aria-labelledby="bots-title">
         <h2 id="bots-title">Bots today</h2>
         <ul class="bots" id="bots"></ul>
       </section>
@@ -139,7 +144,7 @@
   <dialog id="game-over-dialog">
     <div class="dialog-body">
       <h2 id="game-over-title">Final standings</h2>
-      <p class="card-note" id="game-over-note"></p>
+      <p class="note" id="game-over-note"></p>
       <ol class="board" id="final-board"></ol>
       <div class="dialog-buttons">
         <button class="btn btn-ghost" id="close-over-btn" type="button">Close</button>
