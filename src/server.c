@@ -39,6 +39,7 @@
 #include "game.h"
 #include "display.h"
 #include "input.h"
+#include "scores.h"
 
 #define DEFAULT_PORT      8080
 #define REQUEST_MAX       8192     /* biggest request we read */
@@ -47,6 +48,12 @@
 #define READ_TIMEOUT_SECS 5        /* drop clients that connect but send nothing */
 
 static Game game;   /* the one game being played */
+
+/* The all-time top 10 (scores.txt), and whether this game's result is saved yet. */
+static ScoreEntry board[MAX_SCORES];
+static int board_count = 0;
+static int result_saved = 0;
+static int your_place = 0;   /* your place on the board once saved, 0 = didn't make it */
 
 /* ======================================================================
  * Building text (a growing string with overflow protection)
@@ -126,6 +133,60 @@ static void add_portfolio(Text *t, const Portfolio *p, const Market *m) {
     text_add(t, "]");
 }
 
+/* Per stock: what you paid for the shares you hold, the average price, and profit/loss. */
+static void add_holdings_pl(Text *t, const Portfolio *p, const Market *m) {
+    text_add(t, ",\"avgCost\":[");
+    for (int s = 0; s < NUM_STOCKS; s++) {
+        text_add(t, "%s%ld", s > 0 ? "," : "", average_cost(p, s));
+    }
+    text_add(t, "],\"profitLoss\":[");
+    for (int s = 0; s < NUM_STOCKS; s++) {
+        text_add(t, "%s%ld", s > 0 ? "," : "", profit_loss(p, m, s));
+    }
+    text_add(t, "],\"costBasis\":");
+    add_shares_array(t, p->cost_basis);
+}
+
+/* Your trades, oldest first. qty: + = bought, - = sold. */
+static void add_trades(Text *t, const Game *g) {
+    text_add(t, "\"trades\":[");
+    for (int i = 0; i < g->trade_count; i++) {
+        const Trade *tr = &g->trades[i];
+        text_add(t, "%s{\"day\":%d,\"stock\":%d,\"qty\":%ld,\"price\":%ld,\"fee\":%ld}",
+                 i > 0 ? "," : "", tr->day, tr->stock, tr->qty, tr->price, tr->fee);
+    }
+    text_add(t, "]");
+}
+
+/* The race: every player's net worth on each day so far. Player 0 is you. */
+static void add_race(Text *t, const Game *g) {
+    text_add(t, "\"race\":[");
+    for (int pl = 0; pl < NUM_PLAYERS; pl++) {
+        const Portfolio *p = pl == 0 ? &g->you : &g->bots[pl - 1].p;
+        text_add(t, "%s{\"name\":", pl > 0 ? "," : "");
+        text_add_json_string(t, p->name);
+        text_add(t, ",\"isYou\":%s,\"worth\":[", pl == 0 ? "true" : "false");
+        for (int d = 0; d < g->worth_len; d++) {
+            text_add(t, "%s%ld", d > 0 ? "," : "", g->worth_history[pl][d]);
+        }
+        text_add(t, "]}");
+    }
+    text_add(t, "]");
+}
+
+/* The all-time top 10 from scores.txt. */
+static void add_all_time(Text *t) {
+    text_add(t, "\"allTime\":[");
+    for (int i = 0; i < board_count; i++) {
+        text_add(t, "%s{\"name\":", i > 0 ? "," : "");
+        text_add_json_string(t, board[i].name);
+        text_add(t, ",\"netWorth\":%ld,\"seed\":%lu,\"date\":", board[i].net_worth, board[i].seed);
+        text_add_json_string(t, board[i].date);
+        text_add(t, "}");
+    }
+    text_add(t, "],\"resultSaved\":%s,\"yourPlace\":%d", result_saved ? "true" : "false", your_place);
+}
+
 static void add_stocks(Text *t, const Market *m) {
     text_add(t, "\"stocks\":[");
     for (int i = 0; i < NUM_STOCKS; i++) {
@@ -202,6 +263,7 @@ static void add_state(Text *t, const Game *g) {
 
     text_add(t, ",\"you\":{");
     add_portfolio(t, &g->you, m);
+    add_holdings_pl(t, &g->you, m);
     text_add(t, "},\"bots\":[");
     for (int i = 0; i < NUM_BOTS; i++) {
         text_add(t, "%s{", i > 0 ? "," : "");
@@ -215,6 +277,12 @@ static void add_state(Text *t, const Game *g) {
     text_add(t, "],");
 
     add_leaderboard(t, g);
+    text_add(t, ",");
+    add_trades(t, g);
+    text_add(t, ",");
+    add_race(t, g);
+    text_add(t, ",");
+    add_all_time(t);
     text_add(t, "}");
 }
 
@@ -358,6 +426,16 @@ static void api_new(int client, const char *query) {
         seed = (long)(time(NULL) % MAX_SEED);
     }
     game_new(&game, (unsigned long)seed);
+    result_saved = 0;
+    your_place = 0;
+
+    /* The player's name, sent URL-encoded, e.g. name=Mew%20TA */
+    char raw[96];
+    char decoded[96];
+    if (query_value(query, "name", raw, sizeof raw)) {
+        url_decode(raw, decoded, sizeof decoded);
+        clean_name(decoded, game.you.name, sizeof game.you.name);
+    }
 
     char message[64];
     snprintf(message, sizeof message, "New game started with seed %ld.", seed);
@@ -379,8 +457,8 @@ static void api_trade(int client, const char *query, int is_buy) {
 
     const char *symbol = game.market.stocks[stock].symbol;
     long fees_before = game.you.fees_paid;
-    int result = is_buy ? portfolio_buy(&game.you, &game.market, (int)stock, qty)
-                        : portfolio_sell(&game.you, &game.market, (int)stock, qty);
+    int result = is_buy ? game_buy(&game, (int)stock, qty)
+                        : game_sell(&game, (int)stock, qty);
 
     char message[96];
     switch (result) {
@@ -411,6 +489,18 @@ static void api_next(int client) {
         return;
     }
     game_next_day(&game);
+
+    /* The game just ended: add your result to the all-time top 10 and save the file. */
+    if (game_is_over(&game) && !result_saved) {
+        ScoreEntry e;
+        scores_make_entry(&e, game.you.name, portfolio_value(&game.you, &game.market), game.seed);
+        your_place = scores_add(board, &board_count, MAX_SCORES, &e);
+        result_saved = 1;
+        if (!scores_save(SCORES_FILE, board, board_count)) {
+            send_api_answer(client, 0, "Game over, but scores.txt could not be saved.");
+            return;
+        }
+    }
     send_api_answer(client, 1, "");
 }
 
@@ -514,6 +604,7 @@ int main(int argc, char **argv) {
     }
 
     game_new(&game, (unsigned long)(time(NULL) % MAX_SEED));
+    board_count = scores_load(SCORES_FILE, board, MAX_SCORES);
 
     printf("Stock Trading Arena is running.\n");
     printf("Open http://localhost:%ld in your browser. Press Ctrl+C to stop.\n", port);
