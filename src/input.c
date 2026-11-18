@@ -100,6 +100,24 @@ void clean_name(const char *raw, char *out, size_t size) {
     }
     out[len] = '\0';
 
+    /* Thai and other non-English letters take 2 to 4 bytes in UTF-8. If the cut
+       above landed in the middle of one, remove the broken letter. */
+    size_t start = len;
+    while (start > 0 && ((unsigned char)out[start - 1] & 0xC0) == 0x80) {
+        start--;   /* step back over continuation bytes (10xxxxxx) */
+    }
+    if (start > 0 && ((unsigned char)out[start - 1] & 0xC0) == 0xC0) {
+        unsigned char lead = (unsigned char)out[start - 1];
+        size_t need = (lead >= 0xF0) ? 4 : (lead >= 0xE0) ? 3 : 2;
+        if (len - (start - 1) < need) {
+            len = start - 1;
+            while (len > 0 && out[len - 1] == ' ') {
+                len--;   /* never end on a space */
+            }
+            out[len] = '\0';
+        }
+    }
+
     if (len == 0) {
         snprintf(out, size, "Player");
     }

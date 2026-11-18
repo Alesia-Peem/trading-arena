@@ -37,9 +37,22 @@ int scores_load(const char *path, ScoreEntry list[], int max) {
 
     char line[FILE_LINE_BUF];
     int n = 0;
-    while (n < max && fgets(line, sizeof line, f) != NULL) {
-        if (scores_parse_line(line, &list[n])) {
-            n++;
+    while (fgets(line, sizeof line, f) != NULL) {
+        /* No '\n' and not at the end of the file: the line was too long for
+           our buffer. Throw away the rest of it and treat the line as bad,
+           so its tail is never read as a line of its own. */
+        if (strchr(line, '\n') == NULL && !feof(f)) {
+            int c;
+            while ((c = fgetc(f)) != '\n' && c != EOF) {
+            }
+            continue;
+        }
+
+        /* Insert in rank order, so a hand-edited file in any order still
+           gives the best `max` scores, best first. */
+        ScoreEntry e;
+        if (scores_parse_line(line, &e)) {
+            scores_add(list, &n, max, &e);
         }
     }
 

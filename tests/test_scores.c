@@ -126,6 +126,36 @@ static void test_load_skips_bad_and_caps_at_max(void) {
     remove(TMP_FILE);
 }
 
+static void test_load_skips_overlong_line_tail(void) {
+    FILE *f = fopen(TMP_FILE, "w");
+    assert(f != NULL);
+    for (int i = 0; i < 130; i++) fputc('Z', f);
+    fputs("Evil,999999999,1,2026-11-18\n", f);       /* one overlong line */
+    fputs("Peem,1254300,42,2026-12-01\n", f);
+    fclose(f);
+
+    ScoreEntry in[MAX_SCORES];
+    assert(scores_load(TMP_FILE, in, MAX_SCORES) == 1);   /* only Peem */
+    assert(strcmp(in[0].name, "Peem") == 0);
+    remove(TMP_FILE);
+}
+
+static void test_load_sorts_hand_edited_file(void) {
+    FILE *f = fopen(TMP_FILE, "w");
+    assert(f != NULL);
+    for (int i = 0; i < 11; i++) {
+        fprintf(f, "Low%d,%d,1,2026-11-18\n", i, 100 + i);
+    }
+    fputs("Best,9999999,1,2026-11-18\n", f);         /* best score on the last line */
+    fclose(f);
+
+    ScoreEntry in[MAX_SCORES];
+    assert(scores_load(TMP_FILE, in, MAX_SCORES) == 10);
+    assert(strcmp(in[0].name, "Best") == 0);          /* sorted to the top */
+    assert(in[9].net_worth == 102);                   /* the two lowest (100, 101) dropped */
+    remove(TMP_FILE);
+}
+
 static void test_save_bad_path(void) {
     ScoreEntry list[1] = { entry("A", 1) };
     assert(scores_save("tests/no_such_dir/x.txt", list, 1) == 0);
@@ -141,6 +171,8 @@ int main(void) {
     test_load_missing_file();
     test_load_skips_bad_and_caps_at_max();
     test_save_bad_path();
+    test_load_skips_overlong_line_tail();
+    test_load_sorts_hand_edited_file();
 
     printf("test_scores: ALL PASSED\n");
     return 0;

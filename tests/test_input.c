@@ -37,11 +37,23 @@ static void test_clean_name(void) {
     assert(strcmp(b, "ABCDEFGHIJKLMNOPQRSTUV") == 0);    /* cut never ends in a space */
 }
 
+/* Thai letters take 3 bytes each in UTF-8. A cut must never split one. */
+static void test_clean_name_keeps_utf8_whole(void) {
+    char b[24];
+    clean_name("\xE0\xB8\xAA\xE0\xB8\xA1\xE0\xB8\x8A\xE0\xB8\xB2\xE0\xB8\xA2"   /* 5 Thai letters, 15 bytes */
+               " "
+               "\xE0\xB9\x83\xE0\xB8\x88\xE0\xB8\x94\xE0\xB8\xB5", b, sizeof b);   /* + 4 more */
+    /* 15 + 1 + 6 = 22 bytes fit; the 3rd letter after the space (bytes 23-25) does not. */
+    assert(strlen(b) == 22);
+    assert(strcmp(b, "\xE0\xB8\xAA\xE0\xB8\xA1\xE0\xB8\x8A\xE0\xB8\xB2\xE0\xB8\xA2 \xE0\xB9\x83\xE0\xB8\x88") == 0);
+}
+
 int main(void) {
     test_parse_ok();
     test_parse_rejects_garbage();
     test_parse_rejects_out_of_range();
     test_clean_name();
+    test_clean_name_keeps_utf8_whole();
 
     printf("test_input: ALL PASSED\n");
     return 0;

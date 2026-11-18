@@ -23,8 +23,8 @@ typedef struct {
 int scores_parse_line(const char *line, ScoreEntry *out);
 
 /*
- * Read up to `max` valid entries from the file at `path` into list[].
- * Broken lines are skipped. Returns how many were read (0 if the file doesn't exist).
+ * Read the file at `path` into list[], keeping the best `max` entries, best first.
+ * Broken or too-long lines are skipped. Returns how many were kept (0 if the file doesn't exist).
  */
 int scores_load(const char *path, ScoreEntry list[], int max);
 
