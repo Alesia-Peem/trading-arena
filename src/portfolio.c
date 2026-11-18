@@ -19,6 +19,14 @@ void portfolio_init(Portfolio *p, const char *name, long cash) {
     p->cash = cash;
 }
 
+long trade_fee(long value) {
+    if (value <= 0) {
+        return 0;
+    }
+    /* Adding 9999 before dividing rounds UP, so even a tiny trade pays 1 cent. */
+    return (long)(((long long)value * FEE_BP + 9999) / 10000);
+}
+
 int portfolio_buy(Portfolio *p, const Market *m, int stock, long qty) {
     if (!is_valid_order(stock, qty)) {
         return TRADE_BAD_INPUT;
@@ -35,7 +43,14 @@ int portfolio_buy(Portfolio *p, const Market *m, int stock, long qty) {
         return TRADE_NO_CASH;
     }
 
-    p->cash -= price * qty;    /* safe now: we know price * qty <= cash */
+    long cost = price * qty;   /* safe now: we know price * qty <= cash */
+    long fee = trade_fee(cost);
+    if (fee > p->cash - cost) {
+        return TRADE_NO_CASH;  /* enough for the shares, but not for the fee */
+    }
+
+    p->cash -= cost + fee;
+    p->fees_paid += fee;
     p->shares[stock] += qty;
     return TRADE_OK;
 }
@@ -48,10 +63,12 @@ int portfolio_sell(Portfolio *p, const Market *m, int stock, long qty) {
         return TRADE_NO_SHARES;
     }
 
-    long long money_received = (long long)m->stocks[stock].price * qty;
+    long long value = (long long)m->stocks[stock].price * qty;
+    long fee = trade_fee((long)value);
 
     p->shares[stock] -= qty;
-    p->cash = (long)(p->cash + money_received);
+    p->cash = (long)(p->cash + value - fee);
+    p->fees_paid += fee;
     return TRADE_OK;
 }
 
@@ -73,5 +90,11 @@ long max_affordable(const Portfolio *p, const Market *m, int stock) {
     if (price <= 0) {
         return 0;
     }
-    return p->cash / price;
+    /* Start from what the cash buys with no fee, then step down until the fee fits too.
+       The fee is only 0.15%, so we step down by at most about 0.15% of the shares. */
+    long qty = p->cash / price;
+    while (qty > 0 && price * qty + trade_fee(price * qty) > p->cash) {
+        qty--;
+    }
+    return qty;
 }

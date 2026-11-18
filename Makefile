@@ -8,7 +8,9 @@ HEADERS = $(wildcard src/*.h)
 TEST_SRC = $(wildcard tests/test_*.c)
 TESTS = $(patsubst tests/test_%.c,tests/%_test,$(TEST_SRC))
 
-all: arena arena-server
+# `make` builds only the terminal game: it works everywhere, including Windows (MinGW).
+# The web server uses Mac/Linux sockets, so it has its own target: `make web`.
+all: arena
 
 # Terminal version:  ./arena [seed]
 arena: src/main.c $(LIB_SRC) $(HEADERS)
