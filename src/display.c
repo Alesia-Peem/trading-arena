@@ -290,6 +290,9 @@ void print_portfolio(const Portfolio *p, const Market *m) {
 
     format_money(portfolio_value(p, m), money, sizeof money);
     printf("Net worth: %s\n", money);
+
+    format_money(p->fees_paid, money, sizeof money);
+    printf("Fees paid: %s\n", money);
 }
 
 /* ---------- Leaderboard ---------- */
@@ -328,7 +331,7 @@ void print_leaderboard(const Portfolio *ps[], int n, const Market *m) {
     rank_by_value(ps, n, m, order);
 
     printf("\n=== Leaderboard ===\n");
-    printf("%-4s %-16s %16s %10s\n", "RANK", "NAME", "NET WORTH", "PROFIT");
+    printf("%-4s %-23s %12s %10s\n", "RANK", "NAME", "NET WORTH", "PROFIT");
 
     for (int rank = 0; rank < n; rank++) {
         const Portfolio *p = ps[order[rank]];
@@ -339,6 +342,97 @@ void print_leaderboard(const Portfolio *ps[], int n, const Market *m) {
         char profit[32];
         format_money(worth, money, sizeof money);
         format_percent(profit_bp, profit, sizeof profit);
-        printf("%-4d %-16s %16s %10s\n", rank + 1, p->name, money, profit);
+        printf("%-4d %-23s %12s %10s\n", rank + 1, p->name, money, profit);
+    }
+}
+
+/* ---------- End-of-game lesson ---------- */
+
+long change_bp(long from, long to) {
+    if (from <= 0) {
+        return 0;
+    }
+    return (long)(((long long)to - from) * 10000 / from);
+}
+
+long hold_value(const Stock *s, long cash) {
+    long start = s->history[0];
+    long qty = shares_affordable(cash, start);
+    long left = cash - start * qty - trade_fee(start * qty);
+    return (long)(left + (long long)qty * s->price);
+}
+
+/* Change of stock i since day 0, in basis points. */
+static long stock_change_bp(const Market *m, int i) {
+    return change_bp(m->stocks[i].history[0], m->stocks[i].price);
+}
+
+int best_stock(const Market *m) {
+    int best = 0;
+    for (int i = 1; i < NUM_STOCKS; i++) {
+        if (stock_change_bp(m, i) > stock_change_bp(m, best)) {
+            best = i;
+        }
+    }
+    return best;
+}
+
+int worst_stock(const Market *m) {
+    int worst = 0;
+    for (int i = 1; i < NUM_STOCKS; i++) {
+        if (stock_change_bp(m, i) < stock_change_bp(m, worst)) {
+            worst = i;
+        }
+    }
+    return worst;
+}
+
+/* One line of the lesson table: a label, a money value and its change since the start. */
+static void print_lesson_row(const char *label, long value, long start) {
+    char money[32];
+    char pct[32];
+    format_money(value, money, sizeof money);
+    format_percent(change_bp(start, value), pct, sizeof pct);
+    printf("%-30s %12s %9s\n", label, money, pct);
+}
+
+void print_lesson(const Market *m, const Portfolio *you) {
+    int best = best_stock(m);
+    int worst = worst_stock(m);
+    long you_now = portfolio_value(you, m);
+    /* Following the index = your starting cash, moved exactly like the index. */
+    long market_now = (long)((long long)START_CASH * m->index / INDEX_START);
+
+    char text[64];
+    char pct[32];
+
+    printf("\n=== What happened in %d days ===\n", m->day);
+
+    format_percent(change_bp(INDEX_START, m->index), pct, sizeof pct);
+    printf("The market index moved %s.\n", pct);
+    format_percent(stock_change_bp(m, best), pct, sizeof pct);
+    printf("Best stock:  %-5s %s\n", m->stocks[best].symbol, pct);
+    format_percent(stock_change_bp(m, worst), pct, sizeof pct);
+    printf("Worst stock: %-5s %s\n\n", m->stocks[worst].symbol, pct);
+
+    printf("%-30s %12s %9s\n", "IF YOU HAD...", "NOW", "CHANGE");
+    print_lesson_row("Traded like you did", you_now, START_CASH);
+    print_lesson_row("Kept all your cash", START_CASH, START_CASH);
+    print_lesson_row("Followed the market index", market_now, START_CASH);
+    snprintf(text, sizeof text, "Bought %s on day 0 and held", m->stocks[best].symbol);
+    print_lesson_row(text, hold_value(&m->stocks[best], START_CASH), START_CASH);
+
+    format_money(you->fees_paid, text, sizeof text);
+    printf("\nYou paid %s in trading fees.\n", text);
+
+    /* The gap in percentage points, shown without a sign: "by 3.20 points". */
+    long gap = change_bp(START_CASH, you_now) - change_bp(INDEX_START, m->index);
+    long size = gap < 0 ? -gap : gap;
+    if (gap >= 0) {
+        printf("You beat the market by %ld.%02ld points. Skill, or luck? Try another seed.\n",
+               size / 100, size % 100);
+    } else {
+        printf("The market beat you by %ld.%02ld points. Most real traders don't beat it either.\n",
+               size / 100, size % 100);
     }
 }

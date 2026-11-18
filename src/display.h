@@ -46,4 +46,21 @@ void rank_by_value(const Portfolio *ps[], int n, const Market *m, int order[]);
 
 void print_leaderboard(const Portfolio *ps[], int n, const Market *m);
 
+/* ---------- End-of-game lesson ---------- */
+
+/* Percent change from `from` to `to`, in basis points (0 if `from` is 0 or less). */
+long change_bp(long from, long to);
+
+/* What `cash` would be worth now if you had spent it all on stock `s` on day 0
+   (fee included) and never traded again. */
+long hold_value(const Stock *s, long cash);
+
+/* Index of the stock that went up the most / down the most since day 0. */
+int best_stock(const Market *m);
+int worst_stock(const Market *m);
+
+/* The lesson: how you did against the market, against holding cash,
+   and against buying the best stock on day 0 and holding it. */
+void print_lesson(const Market *m, const Portfolio *you);
+
 #endif

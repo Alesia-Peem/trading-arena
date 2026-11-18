@@ -41,6 +41,9 @@ int portfolio_sell(Portfolio *p, const Market *m, int stock, long qty);
 /* Net worth: cash + (shares x today's price) for every stock. */
 long portfolio_value(const Portfolio *p, const Market *m);
 
+/* How many shares at `price` cents you can buy with `cash` cents, fee included. */
+long shares_affordable(long cash, long price);
+
 /* How many shares of `stock` you can afford right now, fee included (0 if `stock` isn't valid). */
 long max_affordable(const Portfolio *p, const Market *m, int stock);
 

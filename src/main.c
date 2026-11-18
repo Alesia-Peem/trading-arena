@@ -38,6 +38,10 @@ static void show_day(const Market *m, const Portfolio *you) {
         printf("NEWS: %s\n", m->news);
     }
 
+    char index[32];
+    format_money(m->index, index, sizeof index);
+    printf("Market index: %s\n", index);
+
     print_market(m);
 
     char cash[32];
@@ -89,15 +93,20 @@ static int do_buy(Portfolio *you, const Market *m) {
     }
 
     char prompt[96];
-    snprintf(prompt, sizeof prompt, "Quantity to buy (max you can afford: %ld): ", can_afford);
+    snprintf(prompt, sizeof prompt, "Quantity to buy (max with the 0.15%% fee: %ld): ", can_afford);
 
     long qty;
     if (!read_long(prompt, 1, MAX_ORDER_QTY, &qty)) {
         return 0;
     }
 
+    long fees_before = you->fees_paid;
+    char fee[32];
     switch (portfolio_buy(you, m, (int)s, qty)) {
-        case TRADE_OK:        printf("Bought %ld %s.\n", qty, symbol);         break;
+        case TRADE_OK:
+            format_money(you->fees_paid - fees_before, fee, sizeof fee);
+            printf("Bought %ld %s (fee %s).\n", qty, symbol, fee);
+            break;
         case TRADE_NO_CASH:   printf("Not enough cash for that order.\n");    break;
         case TRADE_BAD_INPUT: printf("Invalid order.\n");                     break;
         default:              printf("Trade failed.\n");                      break;
@@ -125,8 +134,13 @@ static int do_sell(Portfolio *you, const Market *m) {
         return 0;
     }
 
+    long fees_before = you->fees_paid;
+    char fee[32];
     switch (portfolio_sell(you, m, (int)s, qty)) {
-        case TRADE_OK:        printf("Sold %ld %s.\n", qty, symbol);           break;
+        case TRADE_OK:
+            format_money(you->fees_paid - fees_before, fee, sizeof fee);
+            printf("Sold %ld %s (fee %s).\n", qty, symbol, fee);
+            break;
         case TRADE_NO_SHARES: printf("You don't own that many shares.\n");    break;
         case TRADE_BAD_INPUT: printf("Invalid order.\n");                     break;
         default:              printf("Trade failed.\n");                      break;
@@ -289,6 +303,7 @@ int main(int argc, char **argv) {
     }
 
     show_final_standings(&game);
+    print_lesson(&game.market, &game.you);
     save_result(&game, board, &board_count);
     return 0;
 }

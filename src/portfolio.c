@@ -81,20 +81,22 @@ long portfolio_value(const Portfolio *p, const Market *m) {
     return (long)total;
 }
 
-long max_affordable(const Portfolio *p, const Market *m, int stock) {
-    if (!is_valid_stock(stock)) {
-        return 0;
-    }
-
-    long price = m->stocks[stock].price;
-    if (price <= 0) {
+long shares_affordable(long cash, long price) {
+    if (price <= 0 || cash <= 0) {
         return 0;
     }
     /* Start from what the cash buys with no fee, then step down until the fee fits too.
        The fee is only 0.15%, so we step down by at most about 0.15% of the shares. */
-    long qty = p->cash / price;
-    while (qty > 0 && price * qty + trade_fee(price * qty) > p->cash) {
+    long qty = cash / price;
+    while (qty > 0 && price * qty + trade_fee(price * qty) > cash) {
         qty--;
     }
     return qty;
+}
+
+long max_affordable(const Portfolio *p, const Market *m, int stock) {
+    if (!is_valid_stock(stock)) {
+        return 0;
+    }
+    return shares_affordable(p->cash, m->stocks[stock].price);
 }

@@ -116,6 +116,13 @@ static void test_buy_must_cover_fee(void) {
     assert(p.shares[0] == 199);
 }
 
+static void test_shares_affordable(void) {
+    assert(shares_affordable(1000000, 5000) == 199);   /* same as Max for $10,000 at $50 */
+    assert(shares_affordable(1000000, 100) == 9985);   /* $1 stock: 9,985 + $14.98 fee fits */
+    assert(shares_affordable(0, 5000) == 0);
+    assert(shares_affordable(1000000, 0) == 0);         /* bad price: nothing */
+}
+
 static void test_trade_fee(void) {
     assert(trade_fee(0) == 0);
     assert(trade_fee(10000) == 15);    /* $100 -> $0.15 */
@@ -156,6 +163,7 @@ int main(void) {
     test_init_name_truncates();
     test_buy_must_cover_fee();
     test_trade_fee();
+    test_shares_affordable();
     test_buy_max_qty_no_cash();
     test_failed_sell_keeps_cash();
 

@@ -147,6 +147,32 @@ static void test_print_smoke(void) {
     print_leaderboard(players, 2, &m);
 }
 
+/* ---------- End-of-game lesson ---------- */
+
+static void test_change_bp(void) {
+    assert(change_bp(10000, 10500) == 500);     /* +5% */
+    assert(change_bp(5000, 4000) == -2000);     /* -20% */
+    assert(change_bp(0, 5) == 0);               /* no start price: no change */
+}
+
+static void test_hold_value(void) {
+    Stock s = {0};
+    s.history[0] = 5000;          /* $50 on day 0 */
+    s.history_len = 1;
+    s.price = 6000;               /* $60 now */
+    /* $10,000 buys 199 shares on day 0 (the fee rules out 200), leaving $35.07 cash. */
+    assert(hold_value(&s, 1000000) == 3507 + 199 * 6000);
+}
+
+static void test_best_and_worst_stock(void) {
+    Market m;
+    market_init(&m);
+    m.stocks[3].price = m.stocks[3].history[0] * 3 / 2;   /* DTEC +50% */
+    m.stocks[4].price = m.stocks[4].history[0] / 2;       /* LUCK -50% */
+    assert(best_stock(&m) == 3);
+    assert(worst_stock(&m) == 4);
+}
+
 int main(void) {
     test_money_format();
     test_money_negative_and_small_buffer();
@@ -159,6 +185,10 @@ int main(void) {
     test_rank();
     test_rank_ties_stable();
     test_print_smoke();
+
+    test_change_bp();
+    test_hold_value();
+    test_best_and_worst_stock();
 
     printf("test_display: ALL PASSED\n");
     return 0;
