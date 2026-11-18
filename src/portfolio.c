@@ -51,6 +51,7 @@ int portfolio_buy(Portfolio *p, const Market *m, int stock, long qty) {
 
     p->cash -= cost + fee;
     p->fees_paid += fee;
+    p->cost_basis[stock] += cost + fee;
     p->shares[stock] += qty;
     return TRADE_OK;
 }
@@ -66,10 +67,26 @@ int portfolio_sell(Portfolio *p, const Market *m, int stock, long qty) {
     long long value = (long long)m->stocks[stock].price * qty;
     long fee = trade_fee((long)value);
 
+    /* Average-cost method: selling 4 of your 10 shares removes 4/10 of what you paid. */
+    p->cost_basis[stock] -= (long)((long long)p->cost_basis[stock] * qty / p->shares[stock]);
     p->shares[stock] -= qty;
     p->cash = (long)(p->cash + value - fee);
     p->fees_paid += fee;
     return TRADE_OK;
+}
+
+long average_cost(const Portfolio *p, int stock) {
+    if (!is_valid_stock(stock) || p->shares[stock] <= 0) {
+        return 0;
+    }
+    return p->cost_basis[stock] / p->shares[stock];
+}
+
+long profit_loss(const Portfolio *p, const Market *m, int stock) {
+    if (!is_valid_stock(stock) || p->shares[stock] <= 0) {
+        return 0;
+    }
+    return (long)((long long)p->shares[stock] * m->stocks[stock].price - p->cost_basis[stock]);
 }
 
 long portfolio_value(const Portfolio *p, const Market *m) {

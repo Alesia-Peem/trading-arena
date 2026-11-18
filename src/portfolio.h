@@ -25,6 +25,7 @@ typedef struct {
     long cash;                   /* in cents */
     long shares[NUM_STOCKS];     /* shares[i] = how many shares of stock i you own */
     long fees_paid;              /* all trading fees paid so far, in cents */
+    long cost_basis[NUM_STOCKS]; /* what you paid (fees included) for the shares you hold now */
 } Portfolio;
 
 /* Empty portfolio: just a name and some cash. Long names are cut to 23 letters. */
@@ -37,6 +38,13 @@ long trade_fee(long value);
    Buying needs enough cash for the shares AND the fee. Returns a TRADE_ code. */
 int portfolio_buy(Portfolio *p, const Market *m, int stock, long qty);
 int portfolio_sell(Portfolio *p, const Market *m, int stock, long qty);
+
+/* Average price you paid per share of `stock` you hold now, fees included (0 if none). */
+long average_cost(const Portfolio *p, int stock);
+
+/* How much you are up (+) or down (-) on the shares of `stock` you hold now,
+   if you valued them at today's price. */
+long profit_loss(const Portfolio *p, const Market *m, int stock);
 
 /* Net worth: cash + (shares x today's price) for every stock. */
 long portfolio_value(const Portfolio *p, const Market *m);

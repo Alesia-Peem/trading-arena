@@ -123,6 +123,41 @@ static void test_shares_affordable(void) {
     assert(shares_affordable(1000000, 0) == 0);         /* bad price: nothing */
 }
 
+/* ---------- Profit and loss per holding ---------- */
+
+static void test_cost_basis_tracks_what_you_paid(void) {
+    Portfolio p; Market m;
+    setup(&p, &m);
+
+    portfolio_buy(&p, &m, 0, 10);               /* 10 x $50 + $0.75 fee */
+    assert(p.cost_basis[0] == 50075);
+    assert(average_cost(&p, 0) == 5007);        /* $50.075 a share, rounded down */
+
+    m.stocks[0].price = 6000;                   /* price goes up to $60 */
+    assert(profit_loss(&p, &m, 0) == 60000 - 50075);
+
+    portfolio_sell(&p, &m, 0, 4);               /* sell 4 of 10: 4/10 of the cost goes */
+    assert(p.cost_basis[0] == 50075 - 20030);
+    assert(p.shares[0] == 6);
+
+    portfolio_sell(&p, &m, 0, 6);               /* sell the rest: nothing left */
+    assert(p.cost_basis[0] == 0);
+    assert(average_cost(&p, 0) == 0);
+    assert(profit_loss(&p, &m, 0) == 0);
+}
+
+static void test_cost_basis_adds_up_over_buys(void) {
+    Portfolio p; Market m;
+    setup(&p, &m);
+
+    portfolio_buy(&p, &m, 0, 10);               /* $500.75 at $50 */
+    m.stocks[0].price = 4000;
+    portfolio_buy(&p, &m, 0, 10);               /* $400.60 at $40 */
+    assert(p.cost_basis[0] == 50075 + 40060);
+    assert(average_cost(&p, 0) == 4506);        /* $901.35 / 20 shares */
+    assert(average_cost(&p, 9) == 0);           /* no such stock */
+}
+
 static void test_trade_fee(void) {
     assert(trade_fee(0) == 0);
     assert(trade_fee(10000) == 15);    /* $100 -> $0.15 */
@@ -163,6 +198,8 @@ int main(void) {
     test_init_name_truncates();
     test_buy_must_cover_fee();
     test_trade_fee();
+    test_cost_basis_tracks_what_you_paid();
+    test_cost_basis_adds_up_over_buys();
     test_shares_affordable();
     test_buy_max_qty_no_cash();
     test_failed_sell_keeps_cash();
