@@ -78,3 +78,44 @@ int read_long(const char *prompt, long min, long max, long *out) {
         printf("Please enter a number from %ld to %ld.\n", min, max);
     }
 }
+
+void clean_name(const char *raw, char *out, size_t size) {
+    size_t len = 0;
+    int pending_space = 0;   /* saw a space we haven't written yet */
+
+    for (const char *c = raw; *c != '\0' && len + 1 < size; c++) {
+        int is_gap = (*c == ',' || isspace((unsigned char)*c));
+        if (is_gap) {
+            pending_space = (len > 0);   /* ignore spaces before the first letter */
+            continue;
+        }
+        if (pending_space) {
+            if (len + 2 >= size) {
+                break;                   /* no room for a space plus a letter */
+            }
+            out[len++] = ' ';
+            pending_space = 0;
+        }
+        out[len++] = *c;
+    }
+    out[len] = '\0';
+
+    if (len == 0) {
+        snprintf(out, size, "Player");
+    }
+}
+
+int read_name(const char *prompt, char *out, size_t size) {
+    char line[LINE_BUF];
+
+    printf("%s", prompt);
+    fflush(stdout);
+    if (fgets(line, sizeof line, stdin) == NULL) {
+        return 0;   /* input ended */
+    }
+    if (strchr(line, '\n') == NULL) {
+        skip_rest_of_line();   /* name was longer than the buffer: drop the rest */
+    }
+    clean_name(line, out, size);
+    return 1;
+}
