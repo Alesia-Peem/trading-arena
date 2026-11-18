@@ -32,7 +32,7 @@ make            # build the terminal game
 make test       # run the unit tests
 ```
 
-There is also a browser version, built from the same C game code. It needs macOS or Linux:
+There is also a browser version, built from the same C game code. It needs macOS or Linux. The page uses Vue 3 (`web/vue.global.prod.js`, saved in the repo), so it works offline and needs no build step:
 
 ```bash
 make web        # build and start the server, then open http://localhost:8080

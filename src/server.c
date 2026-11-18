@@ -20,7 +20,7 @@
  *   { "ok": true/false, "message": "...", "state": { ...the whole game... } }
  *
  * Safety: the server only listens on 127.0.0.1 (this computer), and it only
- * serves the 3 files listed in STATIC_FILES, so nobody can read other files.
+ * serves the files listed in STATIC_FILES, so nobody can read other files.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -355,6 +355,7 @@ static const StaticFile STATIC_FILES[] = {
     { "/",          "web/index.html", "text/html; charset=utf-8" },
     { "/style.css", "web/style.css",  "text/css; charset=utf-8" },
     { "/app.js",    "web/app.js",     "text/javascript; charset=utf-8" },
+    { "/vue.js",    "web/vue.global.prod.js", "text/javascript; charset=utf-8" },   /* Vue 3, saved in the repo */
 };
 #define NUM_STATIC_FILES (int)(sizeof STATIC_FILES / sizeof STATIC_FILES[0])
 

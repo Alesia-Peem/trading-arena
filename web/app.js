@@ -1,178 +1,35 @@
 /*
- * Trading Arena - browser side.
+ * Trading Arena - browser side, built with Vue 3 (no build step).
  *
  * This file has NO game rules. Every action is sent to the C server
  * (src/server.c), which answers with the whole game state as JSON.
- * We then redraw the page from that state.
+ * Vue then redraws whatever changed.
  *
- * Money arrives in cents (5000 = $50.00), the same as in the C code.
+ * How it fits together:
+ *   - `store` holds the latest game state from C plus a few page settings.
+ *   - Each component below matches one <script type="text/x-template"> in index.html.
+ *   - Money arrives in cents (5000 = $50.00), the same as in the C code.
  */
 "use strict";
 
-/* ---------- Small helpers ---------- */
+const { createApp, reactive, ref, computed, watch, onMounted, onBeforeUnmount, nextTick } = Vue;
+
+/* ---------- Small helpers (used in every template) ---------- */
 
 const MONEY = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const COUNT = new Intl.NumberFormat("en-US");
 const MAX_ORDER_QTY = 1000000;   /* same limit as portfolio.h */
+const MAX_SEED = 2147483647;     /* same limit as server.c */
 
 const money = (cents) => MONEY.format(cents / 100);
-
+const signedMoney = (cents) => (cents > 0 ? "+" : cents < 0 ? "-" : "") + money(Math.abs(cents));
+const count = (n) => COUNT.format(n);
 /* Basis points -> "+2.35%". Math.trunc matches C's integer division. */
 const percent = (bp) => (bp > 0 ? "+" : bp < 0 ? "-" : "") + MONEY.format(Math.abs(bp) / 100) + "%";
 const changeBp = (from, to) => (from > 0 ? Math.trunc(((to - from) * 10000) / from) : 0);
-const direction = (bp) => (bp > 0 ? "up" : bp < 0 ? "down" : "flat");
+const direction = (n) => (n > 0 ? "up" : n < 0 ? "down" : "flat");
 
-const byId = (id) => document.getElementById(id);
-
-/* Create an element: el("p", { class: "x", text: "hi" }, child1, child2) */
-function el(tag, props = {}, ...children) {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
-    if (key === "class") node.className = value;
-    else if (key === "text") node.textContent = value;
-    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-    else if (value !== false && value != null) node.setAttribute(key, value);
-  }
-  node.append(...children.flat().filter((c) => c != null));
-  return node;
-}
-
-const SVG_NS = "http://www.w3.org/2000/svg";
-function svgEl(tag, attrs = {}) {
-  const node = document.createElementNS(SVG_NS, tag);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-  return node;
-}
-
-/* A "+2.35%" text that is green/red AND has a sign, so color is never the only clue. */
-function changeText(bp, extra = "") {
-  return el("span", { class: "change " + direction(bp), text: percent(bp) + extra });
-}
-
-/* ---------- Talking to the C server ---------- */
-
-let state = null;       /* the latest game state from the server */
-let selected = 0;       /* which stock is selected (0-4) */
-let busy = false;       /* true while waiting for the server */
-let gameOverShownForSeed = null;
-
-async function callServer(path, method = "POST") {
-  if (busy) return null;
-  setBusy(true);
-  try {
-    const response = await fetch(path, { method });
-    if (!response.ok) throw new Error("HTTP " + response.status);
-    const answer = await response.json();
-    byId("connection-error").hidden = true;
-    state = answer.state;
-    render();
-    return answer;
-  } catch (error) {
-    byId("connection-error").hidden = false;
-    return null;
-  } finally {
-    setBusy(false);
-  }
-}
-
-function setBusy(value) {
-  busy = value;
-  byId("app").setAttribute("aria-busy", String(value));
-  updateButtons();
-}
-
-function updateButtons() {
-  const over = !state || state.gameOver;
-  byId("next-day-btn").disabled = busy || over;
-  byId("buy-btn").disabled = busy || over;
-  byId("sell-btn").disabled = busy || over;
-  byId("max-btn").disabled = busy || over;
-  byId("new-game-btn").disabled = busy;
-}
-
-/* ---------- Drawing everything ---------- */
-
-function render() {
-  if (!state) return;
-  renderTopbar();
-  renderNews();
-  renderStockList();
-  renderChart();
-  renderTradeHelper();
-  renderAccount();
-  renderBoard(byId("leaderboard"));
-  renderBots();
-  renderTrades();
-  renderRace();
-  renderAllTime();
-  updateButtons();
-  maybeShowGameOver();
-}
-
-function renderTopbar() {
-  byId("seed").textContent = "Seed " + state.seed;
-  byId("day-text").textContent = state.gameOver
-    ? "Day " + state.day + " of " + state.numDays + ", game over"
-    : "Day " + state.day + " of " + state.numDays;
-  byId("day-meter").style.width = (100 * state.day) / state.numDays + "%";
-  byId("index-text").replaceChildren(
-    "Market " + money(state.index) + " ", changeText(changeBp(state.indexStart, state.index)));
-}
-
-function renderNews() {
-  const news = byId("news");
-  news.hidden = state.news === "";
-  news.classList.toggle("is-crash", state.marketEvent < 0);
-  news.classList.toggle("is-rally", state.marketEvent > 0);
-  byId("news-text").textContent = state.news;
-}
-
-/* A tiny line with no axes, for the stock list. It always uses the full width,
-   so it shows the shape of the price so far. */
-function sparkline(history) {
-  const width = 96, height = 28, pad = 3;
-  const low = Math.min(...history), high = Math.max(...history);
-  const lastDay = Math.max(1, history.length - 1);
-  const x = (day) => pad + (day / lastDay) * (width - 2 * pad);
-  const y = (price) => (high === low ? height / 2 : pad + ((high - price) / (high - low)) * (height - 2 * pad));
-  const d = history.map((p, day) => (day === 0 ? "M" : "L") + x(day).toFixed(1) + " " + y(p).toFixed(1)).join(" ");
-
-  const svg = svgEl("svg", { class: "spark", viewBox: `0 0 ${width} ${height}`, "aria-hidden": "true" });
-  svg.append(svgEl("path", { d }));
-  return svg;
-}
-
-function renderStockList() {
-  const list = byId("stock-list");
-  list.replaceChildren(
-    ...state.stocks.map((stock, i) => {
-      const h = stock.history;
-      const bp = h.length >= 2 ? changeBp(h[h.length - 2], stock.price) : 0;
-      const owned = state.you.shares[i];
-
-      return el("button", {
-          class: "stock-row",
-          type: "button",
-          "aria-pressed": String(i === selected),
-          onclick: () => selectStock(i),
-        },
-        el("span", { class: "symbol", text: stock.symbol }),
-        el("span", { class: "name-cell" },
-          el("span", { class: "stock-name", text: stock.name }),
-          owned > 0 ? el("span", { class: "stock-owned", text: "You own " + COUNT.format(owned) }) : null),
-        el("span", { class: "spark-cell" }, sparkline(h)),
-        el("span", { class: "price", text: money(stock.price) }),
-        changeText(bp));
-    }));
-}
-
-function selectStock(i) {
-  selected = i;
-  byId("trade-message").textContent = "";
-  render();
-}
-
-/* ---------- The big chart ---------- */
+const helpers = { money, signedMoney, count, percent, changeBp, direction };
 
 /* Round axis numbers, e.g. 52.00, 56.00, 60.00 instead of 53.21, 57.37 ... */
 function niceScale(low, high, wantedTicks) {
@@ -185,495 +42,493 @@ function niceScale(low, high, wantedTicks) {
   const magnitude = 10 ** Math.floor(Math.log10(roughStep));
   const ratio = roughStep / magnitude;
   const step = (ratio < 1.5 ? 1 : ratio < 3 ? 2 : ratio < 7 ? 5 : 10) * magnitude;
-
-  const start = Math.floor(low / step) * step;
-  const end = Math.ceil(high / step) * step;
+  const min = Math.floor(low / step) * step;
+  const max = Math.ceil(high / step) * step;
   const ticks = [];
-  for (let t = start; t <= end + step / 2; t += step) ticks.push(t);
-  return { min: start, max: end, ticks };
+  for (let t = min; t <= max + step / 2; t += step) ticks.push(t);
+  return { min, max, ticks };
 }
 
-function renderChart() {
-  const stock = state.stocks[selected];
-  const history = stock.history;
-  const start = history[0];
+/* "M x y L x y ..." for an SVG line through the points. */
+const pathFrom = (points) => points.map(([px, py], i) => (i === 0 ? "M" : "L") + px.toFixed(1) + " " + py.toFixed(1)).join(" ");
 
-  byId("chart-title").replaceChildren(
-    el("span", { class: "symbol", text: stock.symbol }), " ", stock.name);
-  byId("chart-subtitle").textContent =
-    "Moves up to " + stock.volatilityBp / 100 + "% a day on its own, plus " + stock.betaPct / 100 +
-    "x the market. Dashed line: the whole market, for comparison.";
-  byId("chart-price").textContent = money(stock.price);
-  byId("chart-change").replaceChildren(changeText(changeBp(start, stock.price), " since day 0"));
-
-  const wrap = byId("chart-wrap");
-  const width = Math.max(wrap.clientWidth, 280);
-  const height = 280;
-  const margin = { top: 12, right: 12, bottom: 28, left: 64 };
-  const plotW = width - margin.left - margin.right;
-  const plotH = height - margin.top - margin.bottom;
-
-  /* The market index, scaled to start at this stock's day-0 price, so you can
-     see whether the stock did better or worse than the whole market. */
-  const marketLine = state.indexHistory.map((v) => (start * v) / state.indexStart);
-  const scale = niceScale(Math.min(...history, ...marketLine), Math.max(...history, ...marketLine), 4);
-  const x = (day) => margin.left + (day / state.numDays) * plotW;
-  const y = (price) => margin.top + ((scale.max - price) / (scale.max - scale.min)) * plotH;
-
-  const svg = svgEl("svg", {
-    viewBox: `0 0 ${width} ${height}`,
-    role: "img",
-    "aria-label": `${stock.name} price chart, day 0 to day ${history.length - 1}. Now ${money(stock.price)}.`,
+/* The width of an element, kept up to date when the window changes size. */
+function useWidth(elRef, fallback) {
+  const width = ref(fallback);
+  let observer = null;
+  onMounted(() => {
+    observer = new ResizeObserver((entries) => {
+      width.value = Math.max(280, Math.round(entries[0].contentRect.width));
+    });
+    watch(elRef, (el) => { if (el) observer.observe(el); }, { immediate: true });
   });
+  onBeforeUnmount(() => observer && observer.disconnect());
+  return width;
+}
 
-  /* Gridlines and price labels */
-  for (const tick of scale.ticks) {
-    svg.append(svgEl("line", { class: "gridline", x1: margin.left, x2: width - margin.right, y1: y(tick), y2: y(tick) }));
-    const label = svgEl("text", { class: "axis-label", x: margin.left - 10, y: y(tick) + 4, "text-anchor": "end" });
-    label.textContent = money(tick);
-    svg.append(label);
+/* Your name, remembered in this browser only (it can fail in private mode: that's fine). */
+const savedName = () => { try { return localStorage.getItem("arena-name") || ""; } catch (e) { return ""; } };
+const rememberName = (name) => { try { localStorage.setItem("arena-name", name); } catch (e) { /* ignore */ } };
+
+/* ---------- The store: the game state from C, plus page settings ---------- */
+
+const store = reactive({
+  state: null,       /* the latest game state from the server */
+  selected: 0,       /* which stock is selected (0-4) */
+  busy: false,       /* true while waiting for the server */
+  offline: false,    /* true when the server can't be reached */
+  tradeMsg: null,    /* { ok, text } after a trade */
+  recap: null,       /* what happened on the day you just finished */
+});
+
+async function callServer(path, method = "POST") {
+  if (store.busy) return null;
+  store.busy = true;
+  try {
+    const response = await fetch(path, { method });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    const answer = await response.json();
+    store.offline = false;
+    store.state = answer.state;
+    return answer;
+  } catch (error) {
+    store.offline = true;
+    return null;
+  } finally {
+    store.busy = false;
   }
+}
 
-  /* Day labels every 5 days */
-  for (let day = 0; day <= state.numDays; day += 5) {
-    const label = svgEl("text", { class: "axis-label", x: x(day), y: height - 6, "text-anchor": "middle" });
-    label.textContent = day === 0 ? "Day 0" : String(day);
-    svg.append(label);
-  }
+/* Every component gets the helpers plus `s` (the game state) and `store`. */
+const component = (id, extra = {}) => ({
+  template: "#" + id,
+  ...extra,
+  setup(props, ctx) {
+    const own = extra.setup ? extra.setup(props, ctx) : {};
+    return { store, s: computed(() => store.state), ...helpers, ...own };
+  },
+});
 
-  /* Area wash + line + latest-price dot */
-  const points = history.map((p, day) => [x(day), y(p)]);
-  const linePath = points.map(([px, py], i) => (i === 0 ? "M" : "L") + px.toFixed(1) + " " + py.toFixed(1)).join(" ");
-  const last = points[points.length - 1];
-  const bottom = margin.top + plotH;
+/* ---------- Small pieces ---------- */
 
-  if (marketLine.length > 1) {
-    const marketPath = marketLine.map((p, day) => (day === 0 ? "M" : "L") + x(day).toFixed(1) + " " + y(p).toFixed(1)).join(" ");
-    svg.append(svgEl("path", { class: "market-line", d: marketPath }));
-  }
+/* A "+2.35%" text that is green/red AND has a sign, so color is never the only clue. */
+const ChangeText = {
+  template: "#change-text-tpl",
+  props: { bp: { type: Number, required: true }, suffix: { type: String, default: "" } },
+  setup(props) {
+    return {
+      dir: computed(() => direction(props.bp)),
+      text: computed(() => percent(props.bp) + props.suffix),
+    };
+  },
+};
 
-  if (points.length > 1) {
-    svg.append(svgEl("path", { class: "price-area", d: `${linePath} L${last[0].toFixed(1)} ${bottom} L${points[0][0].toFixed(1)} ${bottom} Z` }));
-    svg.append(svgEl("path", { class: "price-line", d: linePath }));
-  }
-  svg.append(svgEl("circle", { class: "end-dot", cx: last[0], cy: last[1], r: 4 }));
+const DayRecap = component("day-recap-tpl", { props: ["recap"], emits: ["close"] });
 
-  /* B / S marks where you bought or sold this stock. */
-  for (const t of state.trades) {
-    if (t.stock !== selected) continue;
-    const mark = svgEl("g", { class: "trade-mark " + (t.qty > 0 ? "is-buy" : "is-sell") });
-    mark.append(svgEl("circle", { cx: x(t.day), cy: y(t.price), r: 8 }));
-    const letter = svgEl("text", { x: x(t.day), y: y(t.price) + 4, "text-anchor": "middle" });
-    letter.textContent = t.qty > 0 ? "B" : "S";
-    mark.append(letter);
-    svg.append(mark);
-  }
+/* A tiny line with no axes, for the stock list. */
+const Sparkline = {
+  template: "#sparkline-tpl",
+  props: { history: { type: Array, required: true } },
+  setup(props) {
+    const path = computed(() => {
+      const h = props.history, width = 96, height = 28, pad = 3;
+      const low = Math.min(...h), high = Math.max(...h);
+      const last = Math.max(1, h.length - 1);
+      return pathFrom(h.map((p, day) => [
+        pad + (day / last) * (width - 2 * pad),
+        high === low ? height / 2 : pad + ((high - p) / (high - low)) * (height - 2 * pad),
+      ]));
+    });
+    return { path };
+  },
+};
 
-  /* Hover: crosshair + dot + tooltip at the nearest day */
-  const crosshair = svgEl("line", { class: "crosshair", y1: margin.top, y2: bottom, visibility: "hidden" });
-  const hoverDot = svgEl("circle", { class: "hover-dot", r: 5, visibility: "hidden" });
-  const hitArea = svgEl("rect", { x: margin.left, y: 0, width: plotW, height, fill: "transparent" });
-  svg.append(crosshair, hoverDot, hitArea);
+/* ---------- Page sections ---------- */
 
-  const tooltip = el("div", { class: "tooltip", hidden: true });
+const selectStock = (i) => { store.selected = i; store.tradeMsg = null; };
 
-  hitArea.addEventListener("pointermove", (event) => {
-    const box = svg.getBoundingClientRect();
-    const mouseX = ((event.clientX - box.left) / box.width) * width;
-    const day = Math.round(((mouseX - margin.left) / plotW) * state.numDays);
-    if (day < 0 || day >= history.length) {
-      crosshair.setAttribute("visibility", "hidden");
-      hoverDot.setAttribute("visibility", "hidden");
-      tooltip.hidden = true;
-      return;
+const Standings = component("standings-tpl");
+
+const StockList = component("stock-list-tpl", {
+  setup() {
+    const dayBp = (stock) => {
+      const h = stock.history;
+      return h.length >= 2 ? changeBp(h[h.length - 2], stock.price) : 0;
+    };
+    return { select: selectStock, dayBp };
+  },
+});
+
+const PriceChart = component("price-chart-tpl", {
+  setup() {
+    const wrap = ref(null);
+    const svg = ref(null);
+    const width = useWidth(wrap, 640);
+    const height = 280;
+    const m = { top: 12, right: 12, bottom: 28, left: 64 };
+    const hover = ref(null);
+
+    const stock = computed(() => store.state.stocks[store.selected]);
+    const history = computed(() => stock.value.history);
+    const numDays = computed(() => store.state.numDays);
+    /* The market index, scaled to start at this stock's day-0 price, so you can
+       see whether the stock did better or worse than the whole market. */
+    const marketLine = computed(() =>
+      store.state.indexHistory.map((v) => (history.value[0] * v) / store.state.indexStart));
+    const scale = computed(() => niceScale(
+      Math.min(...history.value, ...marketLine.value), Math.max(...history.value, ...marketLine.value), 4));
+
+    const plotW = computed(() => width.value - m.left - m.right);
+    const plotH = height - m.top - m.bottom;
+    const x = (day) => m.left + (day / numDays.value) * plotW.value;
+    const y = (price) => m.top + ((scale.value.max - price) / (scale.value.max - scale.value.min)) * plotH;
+
+    const points = computed(() => history.value.map((p, day) => [x(day), y(p)]));
+    const linePath = computed(() => pathFrom(points.value));
+    const areaPath = computed(() => {
+      const pts = points.value, bottom = m.top + plotH;
+      return linePath.value + ` L${pts[pts.length - 1][0].toFixed(1)} ${bottom} L${pts[0][0].toFixed(1)} ${bottom} Z`;
+    });
+    const marketPath = computed(() =>
+      marketLine.value.length > 1 ? pathFrom(marketLine.value.map((v, day) => [x(day), y(v)])) : "");
+    const dayTicks = computed(() => [0, 5, 10, 15, 20, 25, 30].filter((d) => d <= numDays.value));
+    const marks = computed(() => store.state.trades.filter((t) => t.stock === store.selected));
+    const sinceStartBp = computed(() => changeBp(history.value[0], stock.value.price));
+    const reversedDays = computed(() => history.value.map((p, d) => d).reverse());
+    const label = computed(() =>
+      `${stock.value.name} price chart, day 0 to day ${history.value.length - 1}. Now ${money(stock.value.price)}.`);
+
+    function onMove(event) {
+      const box = svg.value.getBoundingClientRect();
+      const mouseX = ((event.clientX - box.left) / box.width) * width.value;
+      const day = Math.round(((mouseX - m.left) / plotW.value) * numDays.value);
+      hover.value = day >= 0 && day < history.value.length ? day : null;
     }
-    const [px, py] = points[day];
-    crosshair.setAttribute("x1", px);
-    crosshair.setAttribute("x2", px);
-    crosshair.setAttribute("visibility", "visible");
-    hoverDot.setAttribute("cx", px);
-    hoverDot.setAttribute("cy", py);
-    hoverDot.setAttribute("visibility", "visible");
+    /* Keep the tooltip inside the chart: flip it to the left on the right half. */
+    const tipStyle = computed(() => {
+      if (hover.value === null) return {};
+      const left = (x(hover.value) / width.value) * 100;
+      const top = Math.max(0, y(history.value[hover.value]) - 70) + "px";
+      return left > 60
+        ? { right: (100 - left) + "%", top, marginRight: "12px" }
+        : { left: left + "%", top, marginLeft: "12px" };
+    });
 
-    const dayChange = day > 0 ? changeBp(history[day - 1], history[day]) : 0;
-    tooltip.replaceChildren(
-      el("span", { text: "Day " + day }),
-      el("strong", { text: money(history[day]) }),
-      day > 0 ? changeText(dayChange, " that day") : el("span", { text: "Starting price" }),
-      el("span", { class: "tip-market", text: "Market line " + money(Math.round(marketLine[day])) }));
-    tooltip.hidden = false;
+    return { wrap, svg, width, height, m, hover, stock, history, marketLine, scale, x, y, linePath, areaPath,
+             marketPath, dayTicks, marks, sinceStartBp, reversedDays, label, onMove, tipStyle };
+  },
+});
 
-    /* Keep the tooltip inside the chart: flip it to the left near the right edge. */
-    const scaleX = box.width / width;
-    const tipWidth = tooltip.offsetWidth;
-    let left = px * scaleX + 12;
-    if (left + tipWidth > box.width) left = px * scaleX - tipWidth - 12;
-    tooltip.style.left = left + "px";
-    tooltip.style.top = Math.max(0, py * (box.height / height) - 60) + "px";
-  });
+const RaceChart = component("race-chart-tpl", {
+  setup() {
+    const wrap = ref(null);
+    const width = useWidth(wrap, 640);
+    const height = 240;
+    /* Phones: thinner margins for the name labels, and day labels every 10 days. */
+    const narrow = computed(() => width.value < 480);
+    const m = computed(() => (narrow.value
+      ? { top: 12, right: 84, bottom: 28, left: 64 }
+      : { top: 12, right: 112, bottom: 28, left: 72 }));
 
-  hitArea.addEventListener("pointerleave", () => {
-    crosshair.setAttribute("visibility", "hidden");
-    hoverDot.setAttribute("visibility", "hidden");
-    tooltip.hidden = true;
-  });
+    const race = computed(() => store.state.race);
+    const scale = computed(() => {
+      const all = race.value.flatMap((r) => r.worth);
+      return niceScale(Math.min(...all), Math.max(...all), 4);
+    });
+    const plotW = computed(() => width.value - m.value.left - m.value.right);
+    const plotH = computed(() => height - m.value.top - m.value.bottom);
+    const x = (day) => m.value.left + (day / store.state.numDays) * plotW.value;
+    const y = (v) => m.value.top + ((scale.value.max - v) / (scale.value.max - scale.value.min)) * plotH.value;
+    const dayTicks = computed(() => (narrow.value ? [0, 10, 20, 30] : [0, 5, 10, 15, 20, 25, 30]));
 
-  wrap.replaceChildren(svg, tooltip);
-  renderPriceTable(stock);
-}
+    /* Bots first, you last, so your line is drawn on top. */
+    const lines = computed(() => race.value
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => Number(a.r.isYou) - Number(b.r.isYou))
+      .map(({ r, i }) => ({
+        key: i,
+        cls: r.isYou ? "is-you" : "bot-" + i,
+        d: pathFrom(r.worth.map((v, day) => [x(day), y(v)])),
+      })));
 
-/* The same data as a table, for screen readers and exact numbers. */
-function renderPriceTable(stock) {
-  const rows = stock.history.map((price, day) => {
-    const bp = day > 0 ? changeBp(stock.history[day - 1], price) : 0;
-    return el("tr", {},
-      el("td", { text: "Day " + day }),
-      el("td", { text: money(price) }),
-      el("td", {}, day > 0 ? changeText(bp) : "start"));
-  });
-  byId("price-table").replaceChildren(
-    el("thead", {}, el("tr", {}, el("th", { text: "Day" }), el("th", { text: "Price" }), el("th", { text: "Change" }))),
-    el("tbody", {}, rows.reverse()));
-}
+    /* Name each line at its end, nudged apart so labels never overlap. */
+    const labels = computed(() => {
+      const maxChars = narrow.value ? 9 : 12;
+      const list = race.value.map((r, i) => {
+        const last = r.worth.length - 1;
+        return {
+          key: i, isYou: r.isYou, x: x(last), y: y(r.worth[last]),
+          text: r.name.length > maxChars ? r.name.slice(0, maxChars - 1) + "..." : r.name,
+        };
+      }).sort((a, b) => a.y - b.y);
+      for (let i = 1; i < list.length; i++) list[i].y = Math.max(list[i].y, list[i - 1].y + 15);
+      return list;
+    });
+    const label = computed(() =>
+      `Net worth of all players from day 0 to day ${store.state.day}. Leading: ${store.state.leaderboard[0].name}.`);
 
-/* ---------- Trade box ---------- */
+    return { wrap, width, height, m, scale, x, y, dayTicks, lines, labels, label };
+  },
+});
 
-function readQty() {
-  const value = byId("qty").value.trim();
-  if (!/^\d+$/.test(value)) return null;
-  const qty = Number(value);
-  return qty >= 1 && qty <= MAX_ORDER_QTY ? qty : null;
-}
+const TradePanel = component("trade-panel-tpl", {
+  setup() {
+    const side = ref("buy");
+    const qty = ref("10");
 
-/* Worked out by the C server (portfolio.c), so the fee rule lives in one place. */
-function maxAffordable() {
-  return Math.min(MAX_ORDER_QTY, state.you.maxAffordable[selected]);
-}
+    const stock = computed(() => store.state.stocks[store.selected]);
+    /* Worked out by the C server (portfolio.c), so the fee rule lives in one place. */
+    const maxBuy = computed(() => Math.min(MAX_ORDER_QTY, store.state.you.maxAffordable[store.selected]));
+    const owned = computed(() => store.state.you.shares[store.selected]);
 
-/* For showing an estimate only: the C server charges the real fee.
-   Same rule as trade_fee() in portfolio.c: feeBp of the value, rounded up. */
-const tradeFee = (value) => (value > 0 ? Math.ceil((value * state.feeBp) / 10000) : 0);
+    const qtyNum = computed(() => {
+      if (!/^\d+$/.test(qty.value)) return null;
+      const n = Number(qty.value);
+      return n >= 1 && n <= MAX_ORDER_QTY ? n : null;
+    });
+    const value = computed(() => (qtyNum.value === null ? 0 : qtyNum.value * stock.value.price));
+    /* For showing an estimate only: the C server charges the real fee.
+       Same rule as trade_fee() in portfolio.c: feeBp of the value, rounded up. */
+    const fee = computed(() => (value.value > 0 ? Math.ceil((value.value * store.state.feeBp) / 10000) : 0));
 
-function renderTradeHelper() {
-  const stock = state.stocks[selected];
-  const owned = state.you.shares[selected];
-  byId("trade-title").textContent = "Trade " + stock.symbol;
-  byId("qty-helper").textContent =
-    "You can afford " + COUNT.format(maxAffordable()) + ". You own " + COUNT.format(owned) + ".";
+    const error = computed(() => {
+      if (qty.value === "" || store.state.gameOver) return "";
+      if (qtyNum.value === null) return "Shares must be a whole number from 1 to 1,000,000.";
+      if (side.value === "buy" && qtyNum.value > maxBuy.value) return "You can afford at most " + count(maxBuy.value) + " (fee included).";
+      if (side.value === "sell" && qtyNum.value > owned.value) return "You only own " + count(owned.value) + ".";
+      return "";
+    });
+    const canSubmit = computed(() =>
+      !store.busy && !store.state.gameOver && qtyNum.value !== null && error.value === "");
 
-  const qty = readQty();
-  const total = byId("order-total");
-  if (qty === null) {
-    total.textContent = "Enter a whole number of shares.";
-  } else {
-    const value = qty * stock.price;
-    const fee = tradeFee(value);
-    total.replaceChildren(
-      el("p", {}, el("span", { text: "Shares" }), el("span", { class: "num", text: money(value) })),
-      el("p", {}, el("span", { text: "Fee " + state.feeBp / 100 + "%" }), el("span", { class: "num", text: money(fee) })),
-      el("p", { class: "order-sum" }, el("span", { text: "You pay on a buy" }), el("b", { text: money(value + fee) })));
-  }
-}
+    const chips = computed(() => {
+      const part = (n, pct) => Math.floor((n * pct) / 100);
+      return side.value === "buy"
+        ? [{ label: "10", qty: Math.min(10, maxBuy.value) }, { label: "25%", qty: part(maxBuy.value, 25) },
+           { label: "50%", qty: part(maxBuy.value, 50) }, { label: "Max", qty: maxBuy.value }]
+        : [{ label: "25%", qty: part(owned.value, 25) }, { label: "50%", qty: part(owned.value, 50) },
+           { label: "All", qty: owned.value }];
+    });
 
-function showTradeMessage(text, ok) {
-  const box = byId("trade-message");
-  box.textContent = text;
-  box.className = "trade-message " + (ok ? "ok" : "error");
-}
-
-async function trade(kind) {
-  const qty = readQty();
-  if (qty === null) {
-    showTradeMessage("Shares must be a whole number from 1 to 1,000,000.", false);
-    return;
-  }
-  const answer = await callServer(`/api/${kind}?stock=${selected}&qty=${qty}`);
-  if (answer) showTradeMessage(answer.message, answer.ok);
-}
-
-/* ---------- Account, leaderboard, bots ---------- */
-
-function renderAccount() {
-  const you = state.you;
-  byId("net-worth").textContent = money(you.netWorth);
-  byId("net-change").replaceChildren(changeText(changeBp(state.startCash, you.netWorth), " since the start"));
-  byId("cash").textContent = money(you.cash);
-  byId("invested").textContent = money(you.netWorth - you.cash);
-  byId("fees-paid").textContent = money(you.feesPaid);
-
-  const items = [];
-  state.stocks.forEach((stock, i) => {
-    const shares = you.shares[i];
-    if (shares > 0) {
-      const pl = you.profitLoss[i];
-      const plBp = changeBp(you.costBasis[i], you.costBasis[i] + pl);
-      items.push(el("li", {},
-        el("span", { class: "symbol", text: stock.symbol }),
-        el("span", { class: "count" },
-          COUNT.format(shares) + " shares",
-          el("span", { class: "avg", text: "paid " + money(you.avgCost[i]) + " each" })),
-        el("span", { class: "value" },
-          money(shares * stock.price),
-          el("span", { class: "change " + direction(pl), text: (pl > 0 ? "+" : pl < 0 ? "-" : "") + money(Math.abs(pl)) + " (" + percent(plBp) + ")" }))));
+    function setSide(next) {
+      side.value = next;
+      store.tradeMsg = null;
+      if (next === "sell" && owned.value > 0 && (qtyNum.value === null || qtyNum.value > owned.value)) {
+        qty.value = String(owned.value);
+      }
     }
-  });
-  if (items.length === 0) {
-    items.push(el("li", { class: "empty", text: "No shares yet. Pick a stock and buy some." }));
-  }
-  byId("holdings").replaceChildren(...items);
-}
+    /* Switching stocks: if you own none of the new one, go back to buying. */
+    watch(() => store.selected, () => { if (owned.value === 0) side.value = "buy"; });
 
-function renderBoard(list) {
-  list.replaceChildren(
-    ...state.leaderboard.map((player, rank) =>
-      el("li", { class: player.isYou ? "you" : "" },
-        el("span", { class: "board-rank", text: String(rank + 1) }),
-        el("span", { text: player.name }),
-        el("span", { class: "board-worth", text: money(player.netWorth) }),
-        el("span", { class: "board-pct" }, changeText(changeBp(state.startCash, player.netWorth))))));
-}
+    async function submit() {
+      if (!canSubmit.value) return;
+      const answer = await callServer(`/api/${side.value}?stock=${store.selected}&qty=${qtyNum.value}`);
+      if (answer) store.tradeMsg = { ok: answer.ok, text: answer.message };
+      /* Sold everything: back to buying, with a fresh amount. */
+      if (answer && answer.ok && side.value === "sell" && owned.value === 0) {
+        side.value = "buy";
+        qty.value = "10";
+      }
+    }
 
-function describeTrades(lastTrades) {
-  const parts = [];
-  lastTrades.forEach((change, i) => {
-    if (change > 0) parts.push("Bought " + COUNT.format(change) + " " + state.stocks[i].symbol);
-    if (change < 0) parts.push("Sold " + COUNT.format(-change) + " " + state.stocks[i].symbol);
-  });
-  return parts.length > 0 ? parts.join(", ") : "No trades";
-}
-
-function renderBots() {
-  byId("bots-title").textContent = state.day === 0 ? "Bots" : "Bots on day " + state.day;
-  byId("bots").replaceChildren(
-    ...state.bots.map((bot) =>
-      el("li", {},
-        el("p", { class: "bot-name", text: bot.name }),
-        el("p", { class: "bot-strategy", text: bot.strategy }),
-        el("p", { class: "bot-trades", text: state.day === 0 ? "Waiting for day 1" : describeTrades(bot.lastTrades) }))));
-}
-
-/* ---------- Your trades ---------- */
-
-function renderTrades() {
-  const list = byId("trades");
-  if (state.trades.length === 0) {
-    list.replaceChildren(el("li", { class: "empty", text: "No trades yet. Your buys and sells show up here and on the chart." }));
-    return;
-  }
-  /* Newest first */
-  list.replaceChildren(...state.trades.slice().reverse().map((t) =>
-    el("li", {},
-      el("span", { class: "trade-day", text: "Day " + t.day }),
-      el("span", { class: "trade-what" },
-        el("b", { class: t.qty > 0 ? "is-buy" : "is-sell", text: t.qty > 0 ? "Bought" : "Sold" }),
-        " " + COUNT.format(Math.abs(t.qty)) + " " + state.stocks[t.stock].symbol + " at " + money(t.price)),
-      el("span", { class: "trade-fee", text: "fee " + money(t.fee) }))));
-}
-
-/* ---------- The race chart ---------- */
-
-function renderRace() {
-  const wrap = byId("race-wrap");
-  const width = Math.max(wrap.clientWidth, 280);
-  const height = 240;
-  /* Phones: thinner margins for the name labels, and day labels every 10 days. */
-  const narrow = width < 480;
-  const margin = narrow ? { top: 12, right: 84, bottom: 28, left: 64 } : { top: 12, right: 112, bottom: 28, left: 72 };
-  const dayStep = narrow ? 10 : 5;
-  const plotW = width - margin.left - margin.right;
-  const plotH = height - margin.top - margin.bottom;
-
-  const all = state.race.flatMap((r) => r.worth);
-  const scale = niceScale(Math.min(...all), Math.max(...all), 4);
-  const x = (day) => margin.left + (day / state.numDays) * plotW;
-  const y = (v) => margin.top + ((scale.max - v) / (scale.max - scale.min)) * plotH;
-
-  const leader = state.leaderboard[0].name;
-  const svg = svgEl("svg", {
-    viewBox: `0 0 ${width} ${height}`,
-    role: "img",
-    "aria-label": `Net worth of all players from day 0 to day ${state.day}. Leading: ${leader}.`,
-  });
-
-  for (const tick of scale.ticks) {
-    svg.append(svgEl("line", { class: "gridline", x1: margin.left, x2: width - margin.right, y1: y(tick), y2: y(tick) }));
-    const label = svgEl("text", { class: "axis-label", x: margin.left - 10, y: y(tick) + 4, "text-anchor": "end" });
-    label.textContent = money(tick);
-    svg.append(label);
-  }
-  for (let day = 0; day <= state.numDays; day += dayStep) {
-    const label = svgEl("text", { class: "axis-label", x: x(day), y: height - 6, "text-anchor": "middle" });
-    label.textContent = day === 0 ? "Day 0" : String(day);
-    svg.append(label);
-  }
-
-  /* Bots first, you last, so your line is drawn on top. */
-  const order = state.race.map((r, i) => i).sort((a, b) => Number(state.race[a].isYou) - Number(state.race[b].isYou));
-  const labels = [];
-  for (const i of order) {
-    const r = state.race[i];
-    const d = r.worth.map((v, day) => (day === 0 ? "M" : "L") + x(day).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
-    svg.append(svgEl("path", { class: "race-line " + (r.isYou ? "is-you" : "bot-" + i), d }));
-    const lastDay = r.worth.length - 1;
-    labels.push({ name: r.name, value: r.worth[lastDay], isYou: r.isYou, x: x(lastDay), y: y(r.worth[lastDay]) });
-  }
-
-  /* Name each line at its end, nudged apart so labels never overlap. */
-  labels.sort((a, b) => a.y - b.y);
-  for (let i = 1; i < labels.length; i++) {
-    labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 15);
-  }
-  for (const l of labels) {
-    const text = svgEl("text", { class: "race-label" + (l.isYou ? " is-you" : ""), x: l.x + 8, y: l.y + 4 });
-    const maxChars = narrow ? 9 : 12;
-    text.textContent = l.name.length > maxChars ? l.name.slice(0, maxChars - 1) + "..." : l.name;
-    svg.append(text);
-  }
-
-  wrap.replaceChildren(svg);
-}
-
-/* ---------- All-time top 10 ---------- */
-
-function renderAllTime() {
-  const list = byId("alltime");
-  if (state.allTime.length === 0) {
-    list.replaceChildren(el("li", { class: "empty", text: "No finished games yet. Play all 30 days to get on the board." }));
-    return;
-  }
-  list.replaceChildren(...state.allTime.map((e, i) =>
-    el("li", { class: state.resultSaved && state.yourPlace === i + 1 ? "you" : "" },
-      el("span", { class: "board-rank", text: String(i + 1) }),
-      el("span", { class: "alltime-name", text: e.name }),
-      el("span", { class: "alltime-worth", text: money(e.netWorth) }),
-      el("span", { class: "alltime-meta", text: "seed " + e.seed + ", " + e.date }))));
-}
-
-/* ---------- Your name (remembered in this browser only) ---------- */
-
-function savedName() {
-  try { return localStorage.getItem("arena-name") || ""; } catch (e) { return ""; }
-}
-function rememberName(name) {
-  try { localStorage.setItem("arena-name", name); } catch (e) { /* private mode: fine */ }
-}
-
-/* ---------- Game over and new game ---------- */
-
-function maybeShowGameOver() {
-  if (!state.gameOver || gameOverShownForSeed === state.seed) return;
-  gameOverShownForSeed = state.seed;
-
-  const rank = state.leaderboard.findIndex((p) => p.isYou) + 1;
-  const places = ["1st", "2nd", "3rd", "4th"];
-  byId("game-over-title").textContent = rank === 1 ? "You won" : "You finished " + places[rank - 1];
-  byId("game-over-note").textContent =
-    state.you.netWorth < state.startCash
-      ? "Markets are risky. That's the point."
-      : "Was it skill or luck? Try another seed.";
-  renderBoard(byId("final-board"));
-  renderLesson();
-  byId("saved-note").textContent = !state.resultSaved
-    ? ""
-    : state.yourPlace > 0
-      ? "Saved to scores.txt: you placed #" + state.yourPlace + " on the all-time top 10."
-      : "Saved to scores.txt, but not in the top 10 this time.";
-  byId("game-over-dialog").showModal();
-}
-
-/* The lesson numbers come from the C server (display.c), the same as the terminal. */
-function renderLesson() {
-  const lesson = state.lesson;
-  const best = state.stocks[lesson.bestStock];
-  const row = (label, value) =>
-    el("tr", {},
-      el("th", { scope: "row", text: label }),
-      el("td", { class: "num", text: money(value) }),
-      el("td", {}, changeText(changeBp(state.startCash, value))));
-
-  byId("lesson-table").replaceChildren(
-    row("Traded like you did", state.you.netWorth),
-    row("Kept all your cash", state.startCash),
-    row("Followed the market index", lesson.followIndexValue),
-    row("Bought " + best.symbol + " on day 0 and held", lesson.holdBestValue));
-
-  const gap = changeBp(state.startCash, state.you.netWorth) - changeBp(state.indexStart, state.index);
-  const points = MONEY.format(Math.abs(gap) / 100);
-  byId("lesson-verdict").textContent =
-    (gap >= 0
-      ? "You beat the market by " + points + " points."
-      : "The market beat you by " + points + " points. Most real traders don't beat it either.") +
-    " You paid " + money(state.you.feesPaid) + " in fees.";
-}
-
-async function startGame(seedText) {
-  const seed = seedText.trim();
-  const name = (byId("name-input").value || savedName()).trim();
-  rememberName(name);
-  const params = new URLSearchParams();
-  if (/^\d+$/.test(seed)) params.set("seed", seed);
-  if (name !== "") params.set("name", name);
-  const query = params.toString() === "" ? "" : "?" + params.toString();
-  gameOverShownForSeed = null;
-  selected = 0;
-  byId("trade-message").textContent = "";
-  await callServer("/api/new" + query);
-}
-
-/* ---------- Wiring up the buttons ---------- */
-
-byId("next-day-btn").addEventListener("click", async () => {
-  byId("trade-message").textContent = "";
-  await callServer("/api/next");
+    return { side, qty, stock, maxBuy, owned, qtyNum, value, fee, error, canSubmit, chips, setSide, submit };
+  },
 });
 
-byId("trade-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  trade("buy");
-});
-byId("sell-btn").addEventListener("click", () => trade("sell"));
-byId("max-btn").addEventListener("click", () => {
-  byId("qty").value = String(Math.max(1, maxAffordable()));
-  renderTradeHelper();
-});
-byId("qty").addEventListener("input", () => state && renderTradeHelper());
-
-function openNewGame() {
-  if (byId("name-input").value === "") byId("name-input").value = savedName();
-  byId("new-game-dialog").showModal();
-}
-byId("new-game-btn").addEventListener("click", openNewGame);
-byId("new-game-form").addEventListener("submit", (event) => {
-  if (event.submitter && event.submitter.value === "start") startGame(byId("seed-input").value);
+const AccountPanel = component("account-panel-tpl", {
+  setup() {
+    const holdings = computed(() => {
+      const you = store.state.you;
+      return store.state.stocks.map((stock, i) => ({
+        index: i, symbol: stock.symbol, shares: you.shares[i], avg: you.avgCost[i],
+        value: you.shares[i] * stock.price, pl: you.profitLoss[i],
+        plBp: changeBp(you.costBasis[i], you.costBasis[i] + you.profitLoss[i]),
+      })).filter((h) => h.shares > 0);
+    });
+    return { holdings, select: selectStock };
+  },
 });
 
-byId("close-over-btn").addEventListener("click", () => byId("game-over-dialog").close());
-byId("replay-btn").addEventListener("click", () => {
-  byId("game-over-dialog").close();
-  startGame(String(state.seed));
-});
-byId("over-new-btn").addEventListener("click", () => {
-  byId("game-over-dialog").close();
-  openNewGame();
+const TradesList = component("trades-list-tpl", {
+  setup() {
+    return { newestFirst: computed(() => store.state.trades.slice().reverse()) };
+  },
 });
 
-byId("retry-btn").addEventListener("click", () => callServer("/api/state", "GET"));
-
-/* Keyboard: N = next day, 1-5 = pick a stock (not while typing in a box). */
-document.addEventListener("keydown", (event) => {
-  if (event.target.closest("input, dialog") || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (event.key === "n" || event.key === "N") {
-    if (!byId("next-day-btn").disabled) byId("next-day-btn").click();
-  } else if (state && event.key >= "1" && event.key <= String(state.stocks.length)) {
-    selectStock(Number(event.key) - 1);
-  }
+const BotsList = component("bots-list-tpl", {
+  setup() {
+    function describe(lastTrades) {
+      const parts = [];
+      lastTrades.forEach((change, i) => {
+        if (change > 0) parts.push("Bought " + count(change) + " " + store.state.stocks[i].symbol);
+        if (change < 0) parts.push("Sold " + count(-change) + " " + store.state.stocks[i].symbol);
+      });
+      return parts.length > 0 ? parts.join(", ") : "No trades";
+    }
+    return { describe };
+  },
 });
 
-/* Redraw the chart when the window size changes, so text never stretches. */
-let resizeTimer = null;
-window.addEventListener("resize", () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => state && (renderChart(), renderRace()), 100);
+const AllTime = component("all-time-tpl");
+
+/* ---------- Dialogs: start a game, see the results ---------- */
+
+const StartDialog = component("start-dialog-tpl", {
+  setup(props, { expose }) {
+    const dlg = ref(null);
+    const name = ref(savedName());
+    const seed = ref("");
+    /* You can go back to the current game once it has started (a day passed or a trade made). */
+    const resumable = computed(() => !!store.state && (store.state.day > 0 || store.state.trades.length > 0));
+    const seedError = computed(() => {
+      if (seed.value === "") return "";
+      return /^\d+$/.test(seed.value) && Number(seed.value) <= MAX_SEED
+        ? "" : "Use a whole number, or leave it empty for a random game.";
+    });
+
+    const open = () => { if (!dlg.value.open) dlg.value.showModal(); };
+    const close = () => dlg.value.close();
+    /* Esc closes it only when there is a game to go back to. */
+    const onCancel = (event) => { if (!resumable.value) event.preventDefault(); };
+
+    async function start() {
+      if (seedError.value) return;
+      const params = new URLSearchParams();
+      if (seed.value !== "") params.set("seed", seed.value);
+      if (name.value.trim() !== "") params.set("name", name.value.trim());
+      rememberName(name.value.trim());
+      store.selected = 0;
+      store.tradeMsg = null;
+      store.recap = null;
+      const answer = await callServer("/api/new" + (params.toString() ? "?" + params : ""));
+      if (answer) {
+        seed.value = "";
+        close();
+      }
+    }
+    expose({ open });
+    return { dlg, name, seed, resumable, seedError, open, close, onCancel, start };
+  },
 });
 
-callServer("/api/state", "GET");
+const ResultsDialog = component("results-dialog-tpl", {
+  emits: ["new-game"],
+  setup(props, { emit, expose }) {
+    const dlg = ref(null);
+    const rank = computed(() => store.state.leaderboard.findIndex((p) => p.isYou) + 1);
+    const title = computed(() => (rank.value === 1 ? "You won" : "You finished " + ["1st", "2nd", "3rd", "4th"][rank.value - 1]));
+    const savedNote = computed(() => {
+      const s = store.state;
+      if (!s.resultSaved) return "";
+      return s.yourPlace > 0
+        ? "Saved to scores.txt: you placed #" + s.yourPlace + " on the all-time top 10."
+        : "Saved to scores.txt, but not in the top 10 this time.";
+    });
+    /* The lesson numbers come from the C server (display.c), the same as the terminal. */
+    const lessonRows = computed(() => {
+      const s = store.state, best = s.stocks[s.lesson.bestStock];
+      return [
+        { label: "Traded like you did", value: s.you.netWorth },
+        { label: "Kept all your cash", value: s.startCash },
+        { label: "Followed the market index", value: s.lesson.followIndexValue },
+        { label: "Bought " + best.symbol + " on day 0 and held", value: s.lesson.holdBestValue },
+      ];
+    });
+    const verdict = computed(() => {
+      const s = store.state;
+      const gap = changeBp(s.startCash, s.you.netWorth) - changeBp(s.indexStart, s.index);
+      const points = MONEY.format(Math.abs(gap) / 100);
+      return (gap >= 0
+        ? "You beat the market by " + points + " points."
+        : "The market beat you by " + points + " points. Most real traders don't beat it either.") +
+        " You paid " + money(s.you.feesPaid) + " in fees.";
+    });
+
+    const open = () => { if (!dlg.value.open) dlg.value.showModal(); };
+    const close = () => dlg.value.close();
+    async function replay() {
+      close();
+      store.selected = 0;
+      store.recap = null;
+      store.tradeMsg = null;
+      const params = new URLSearchParams({ seed: String(store.state.seed), name: store.state.you.name });
+      await callServer("/api/new?" + params);
+    }
+    const newGame = () => { close(); emit("new-game"); };
+    expose({ open });
+    return { dlg, title, savedNote, lessonRows, verdict, open, close, replay, newGame };
+  },
+});
+
+/* ---------- The app ---------- */
+
+const App = component("app-tpl", {
+  setup() {
+    const start = ref(null);
+    const results = ref(null);
+    const s = computed(() => store.state);
+
+    const dayText = computed(() => (!s.value ? "Day 0 of 30"
+      : "Day " + s.value.day + " of " + s.value.numDays + (s.value.gameOver ? ", game over" : "")));
+    const meterWidth = computed(() => (s.value ? (100 * s.value.day) / s.value.numDays : 0) + "%");
+    const indexBp = computed(() => changeBp(s.value.indexStart, s.value.index));
+
+    const openStart = () => start.value.open();
+    const openResults = () => results.value.open();
+
+    /* Next day, then a one-line recap of what happened to you and the market. */
+    async function nextDay() {
+      if (!s.value || s.value.gameOver || store.busy) return;
+      const youBefore = s.value.you.netWorth;
+      const indexBefore = s.value.index;
+      store.tradeMsg = null;
+      const answer = await callServer("/api/next");
+      if (!answer) return;
+      store.recap = {
+        day: s.value.day,
+        youBp: changeBp(youBefore, s.value.you.netWorth),
+        marketBp: changeBp(indexBefore, s.value.index),
+        news: s.value.news,
+        event: s.value.marketEvent,
+      };
+      if (s.value.gameOver) nextTick(openResults);
+    }
+
+    const reload = () => callServer("/api/state", "GET");
+
+    /* Keyboard: N = next day, 1-5 = pick a stock (not while typing or in a dialog). */
+    function onKey(event) {
+      if (event.target.closest("input, dialog") || event.metaKey || event.ctrlKey || event.altKey || !s.value) return;
+      if (event.key === "n" || event.key === "N") nextDay();
+      else if (event.key >= "1" && event.key <= String(s.value.stocks.length)) selectStock(Number(event.key) - 1);
+    }
+
+    onMounted(async () => {
+      document.addEventListener("keydown", onKey);
+      await reload();
+      /* A fresh game nobody has touched yet: start with the welcome screen. */
+      if (s.value && s.value.day === 0 && s.value.trades.length === 0) openStart();
+      else if (s.value && s.value.gameOver) openResults();
+    });
+    onBeforeUnmount(() => document.removeEventListener("keydown", onKey));
+
+    return { start, results, dayText, meterWidth, indexBp, openStart, openResults, nextDay, reload };
+  },
+});
+
+const app = createApp(App);
+app.component("change-text", ChangeText);
+app.component("day-recap", DayRecap);
+app.component("sparkline", Sparkline);
+app.component("standings", Standings);
+app.component("stock-list", StockList);
+app.component("price-chart", PriceChart);
+app.component("race-chart", RaceChart);
+app.component("trade-panel", TradePanel);
+app.component("account-panel", AccountPanel);
+app.component("trades-list", TradesList);
+app.component("bots-list", BotsList);
+app.component("all-time", AllTime);
+app.component("start-dialog", StartDialog);
+app.component("results-dialog", ResultsDialog);
+app.mount("#app");

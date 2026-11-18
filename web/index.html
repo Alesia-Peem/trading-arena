@@ -3,188 +3,402 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Stock Trading Arena: trade made-up stocks for 30 days against three computer traders. A CPE101 project in C.">
   <title>Trading Arena</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <!-- The game itself runs in C (src/server.c). This page only shows it and sends your clicks. -->
+  <!--
+    The game itself runs in C (src/server.c). This page only shows it and sends your clicks.
+    It is built with Vue 3 (web/vue.global.prod.js, served by the C server, no build step).
+    Each <script type="text/x-template"> below is one piece of the page (a Vue component);
+    app.js gives each one its data and behavior.
+  -->
+  <a class="skip-link" href="#main">Skip to the game</a>
+  <div id="app" v-cloak></div>
 
-  <header class="topbar">
-    <div class="topbar-inner">
-      <div class="brand">
-        <h1>Trading Arena</h1>
-        <p class="seed" id="seed">Connecting to the C server</p>
-      </div>
+  <!-- ===================== The whole page ===================== -->
+  <script type="text/x-template" id="app-tpl">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <h1>Trading Arena</h1>
+          <p class="seed">{{ s ? (s.you.name + ", seed " + s.seed) : "Connecting to the C server" }}</p>
+        </div>
 
-      <div class="progress" aria-live="polite">
-        <p class="progress-label"><span id="day-text">Day 0 of 30</span> <span class="index-text" id="index-text"></span></p>
-        <!-- 30 segments, one per trading day (drawn by CSS) -->
-        <div class="meter" aria-hidden="true"><div class="meter-fill" id="day-meter"></div></div>
-      </div>
+        <div class="progress" aria-live="polite">
+          <p class="progress-label">
+            <span>{{ dayText }}</span>
+            <span class="index-text" v-if="s">Market {{ money(s.index) }} <change-text :bp="indexBp"></change-text></span>
+          </p>
+          <div class="meter" aria-hidden="true"><div class="meter-fill" :style="{ width: meterWidth }"></div></div>
+        </div>
 
-      <div class="topbar-actions">
-        <button class="btn btn-ghost" id="new-game-btn" type="button">New game</button>
-        <button class="btn btn-primary" id="next-day-btn" type="button">
-          Next day <kbd>N</kbd>
-        </button>
+        <div class="topbar-actions">
+          <button class="btn btn-ghost" type="button" :disabled="store.busy" @click="openStart">New game</button>
+          <button v-if="s && s.gameOver" class="btn btn-primary" type="button" @click="openResults">See results</button>
+          <button v-else class="btn btn-primary" type="button" :disabled="!s || store.busy" @click="nextDay">
+            Next day <kbd>N</kbd>
+          </button>
+        </div>
       </div>
+    </header>
+
+    <div class="banner banner-error" role="alert" v-if="store.offline">
+      <p>Can't reach the game server. Start it with <code>./arena-server</code> in the trading-arena folder, then try again.</p>
+      <button class="btn btn-ghost" type="button" @click="reload">Try again</button>
     </div>
-  </header>
 
-  <div class="banner banner-error" id="connection-error" role="alert" hidden>
-    <p>Can't reach the game server. Start it with <code>./arena-server</code> in the trading-arena folder, then try again.</p>
-    <button class="btn btn-ghost" id="retry-btn" type="button">Try again</button>
-  </div>
+    <day-recap v-if="store.recap" :recap="store.recap" @close="store.recap = null"></day-recap>
 
-  <div class="banner banner-news" id="news" role="status" hidden>
-    <strong>Breaking</strong>
-    <p id="news-text"></p>
-  </div>
+    <main class="layout" id="main" :aria-busy="store.busy ? 'true' : 'false'">
+      <standings></standings>
+      <div class="col-main">
+        <stock-list></stock-list>
+        <price-chart></price-chart>
+        <race-chart></race-chart>
+      </div>
+      <aside class="col-side">
+        <trade-panel></trade-panel>
+        <account-panel></account-panel>
+        <trades-list></trades-list>
+        <bots-list></bots-list>
+        <all-time></all-time>
+      </aside>
+    </main>
 
-  <main class="layout" id="app" aria-busy="true">
-    <!-- The race: you against the 3 bots, ranked by net worth. -->
+    <start-dialog ref="start"></start-dialog>
+    <results-dialog ref="results" @new-game="openStart"></results-dialog>
+  </script>
+
+  <!-- ===================== Small pieces ===================== -->
+  <script type="text/x-template" id="change-text-tpl">
+    <span :class="['change', dir]">{{ text }}</span>
+  </script>
+
+  <script type="text/x-template" id="day-recap-tpl">
+    <div class="recap" role="status" :class="{ 'is-crash': recap.event < 0, 'is-rally': recap.event > 0 }">
+      <p class="recap-day">Day {{ recap.day }}</p>
+      <p class="recap-item">You <change-text :bp="recap.youBp"></change-text></p>
+      <p class="recap-item">Market <change-text :bp="recap.marketBp"></change-text></p>
+      <p class="recap-news" v-if="recap.news">{{ recap.news }}</p>
+      <p class="recap-news quiet" v-else>No news today.</p>
+      <button class="recap-close" type="button" aria-label="Hide the day summary" @click="$emit('close')">Hide</button>
+    </div>
+  </script>
+
+  <!-- ===================== The race (standings) ===================== -->
+  <script type="text/x-template" id="standings-tpl">
     <section class="standings" aria-labelledby="board-title">
       <h2 class="sr-only" id="board-title">Leaderboard</h2>
-      <ol class="board standings-list" id="leaderboard">
-        <li class="skeleton-tile"></li><li class="skeleton-tile"></li>
-        <li class="skeleton-tile"></li><li class="skeleton-tile"></li>
+      <ol class="board standings-list" v-if="s">
+        <li v-for="(p, rank) in s.leaderboard" :key="p.name + rank" :class="{ you: p.isYou }">
+          <span class="board-rank">{{ rank + 1 }}</span>
+          <span class="board-name">{{ p.name }}</span>
+          <span class="board-worth">{{ money(p.netWorth) }}</span>
+          <span class="board-pct"><change-text :bp="changeBp(s.startCash, p.netWorth)"></change-text></span>
+        </li>
+      </ol>
+      <ol class="board standings-list" v-else>
+        <li class="skeleton-tile" v-for="n in 4" :key="n"></li>
       </ol>
     </section>
+  </script>
 
-    <div class="col-main">
-      <section class="panel market" aria-labelledby="market-title">
-        <div class="panel-head">
-          <h2 id="market-title">Market</h2>
-          <p class="note">Pick a stock to see its chart. Keys 1 to 5 work too.</p>
-        </div>
-        <div class="stock-list" id="stock-list">
-          <div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>
-          <div class="skeleton-row"></div><div class="skeleton-row"></div>
-        </div>
-      </section>
+  <!-- ===================== Market list ===================== -->
+  <script type="text/x-template" id="stock-list-tpl">
+    <section class="panel market" aria-labelledby="market-title">
+      <div class="panel-head">
+        <h2 id="market-title">Market</h2>
+        <p class="note">Pick a stock to see its chart and trade it. Keys 1 to 5 work too.</p>
+      </div>
+      <div class="stock-list" v-if="s">
+        <button v-for="(stock, i) in s.stocks" :key="stock.symbol" class="stock-row" type="button"
+                :aria-pressed="String(i === store.selected)" @click="select(i)">
+          <span class="symbol">{{ stock.symbol }}</span>
+          <span class="name-cell">
+            <span class="stock-name">{{ stock.name }}</span>
+            <span class="stock-owned" v-if="s.you.shares[i] > 0">You own {{ count(s.you.shares[i]) }}</span>
+          </span>
+          <span class="spark-cell"><sparkline :history="stock.history"></sparkline></span>
+          <span class="price">{{ money(stock.price) }}</span>
+          <change-text :bp="dayBp(stock)"></change-text>
+        </button>
+      </div>
+      <div class="stock-list" v-else>
+        <div class="skeleton-row" v-for="n in 5" :key="n"></div>
+      </div>
+    </section>
+  </script>
 
-      <section class="panel chart-card" aria-labelledby="chart-title">
+  <script type="text/x-template" id="sparkline-tpl">
+    <svg class="spark" viewBox="0 0 96 28" aria-hidden="true"><path :d="path"></path></svg>
+  </script>
+
+  <!-- ===================== Price chart ===================== -->
+  <script type="text/x-template" id="price-chart-tpl">
+    <section class="panel chart-card" aria-labelledby="chart-title">
+      <template v-if="s">
         <div class="chart-head">
           <div>
-            <h2 id="chart-title">&nbsp;</h2>
-            <p class="note" id="chart-subtitle">&nbsp;</p>
+            <h2 id="chart-title"><span class="symbol">{{ stock.symbol }}</span> {{ stock.name }}</h2>
+            <p class="note">Moves up to {{ stock.volatilityBp / 100 }}% a day on its own, plus {{ stock.betaPct / 100 }}x the market. Dashed line: the whole market, for comparison.</p>
           </div>
           <div class="chart-price">
-            <p class="big-number" id="chart-price">&nbsp;</p>
-            <p class="change" id="chart-change">&nbsp;</p>
+            <p class="big-number">{{ money(stock.price) }}</p>
+            <p><change-text :bp="sinceStartBp" suffix=" since day 0"></change-text></p>
           </div>
         </div>
-        <div class="chart-wrap" id="chart-wrap">
-          <div class="skeleton-chart"></div>
+        <div class="chart-wrap" ref="wrap">
+          <svg ref="svg" :viewBox="'0 0 ' + width + ' ' + height" role="img" :aria-label="label"
+               @pointermove="onMove" @pointerleave="hover = null">
+            <g v-for="t in scale.ticks" :key="'t' + t">
+              <line class="gridline" :x1="m.left" :x2="width - m.right" :y1="y(t)" :y2="y(t)"></line>
+              <text class="axis-label" :x="m.left - 10" :y="y(t) + 4" text-anchor="end">{{ money(t) }}</text>
+            </g>
+            <text v-for="d in dayTicks" :key="'d' + d" class="axis-label" :x="x(d)" :y="height - 6" text-anchor="middle">{{ d === 0 ? "Day 0" : d }}</text>
+            <path v-if="marketPath" class="market-line" :d="marketPath"></path>
+            <path v-if="history.length > 1" class="price-area" :d="areaPath"></path>
+            <path v-if="history.length > 1" class="price-line" :d="linePath"></path>
+            <circle class="end-dot" :cx="x(history.length - 1)" :cy="y(stock.price)" r="4"></circle>
+            <g v-for="(t, i) in marks" :key="'m' + i" :class="['trade-mark', t.qty > 0 ? 'is-buy' : 'is-sell']">
+              <circle :cx="x(t.day)" :cy="y(t.price)" r="8"></circle>
+              <text :x="x(t.day)" :y="y(t.price) + 4" text-anchor="middle">{{ t.qty > 0 ? "B" : "S" }}</text>
+            </g>
+            <template v-if="hover !== null">
+              <line class="crosshair" :x1="x(hover)" :x2="x(hover)" :y1="m.top" :y2="height - m.bottom"></line>
+              <circle class="hover-dot" :cx="x(hover)" :cy="y(history[hover])" r="5"></circle>
+            </template>
+          </svg>
+          <div class="tooltip" v-if="hover !== null" :style="tipStyle">
+            <span>Day {{ hover }}</span>
+            <strong>{{ money(history[hover]) }}</strong>
+            <change-text v-if="hover > 0" :bp="changeBp(history[hover - 1], history[hover])" suffix=" that day"></change-text>
+            <span v-else>Starting price</span>
+            <span class="tip-market">Market line {{ money(Math.round(marketLine[hover])) }}</span>
+          </div>
         </div>
         <details class="table-view">
           <summary>Show prices as a table</summary>
-          <div class="table-scroll"><table id="price-table"></table></div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Day</th><th>Price</th><th>Change</th></tr></thead>
+              <tbody>
+                <tr v-for="d in reversedDays" :key="d">
+                  <td>Day {{ d }}</td>
+                  <td>{{ money(history[d]) }}</td>
+                  <td><change-text v-if="d > 0" :bp="changeBp(history[d - 1], history[d])"></change-text><span v-else>start</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </details>
-      </section>
+      </template>
+      <div class="skeleton-chart" v-else></div>
+    </section>
+  </script>
 
-      <section class="panel race-card" aria-labelledby="race-title">
-        <div class="panel-head">
-          <h2 id="race-title">The race</h2>
-          <p class="note">Everyone's net worth, day by day.</p>
+  <!-- ===================== The race chart ===================== -->
+  <script type="text/x-template" id="race-chart-tpl">
+    <section class="panel race-card" aria-labelledby="race-title">
+      <div class="panel-head">
+        <h2 id="race-title">The race</h2>
+        <p class="note">Everyone's net worth, day by day.</p>
+      </div>
+      <div class="race-wrap" ref="wrap">
+        <svg v-if="s" :viewBox="'0 0 ' + width + ' ' + height" role="img" :aria-label="label">
+          <g v-for="t in scale.ticks" :key="'t' + t">
+            <line class="gridline" :x1="m.left" :x2="width - m.right" :y1="y(t)" :y2="y(t)"></line>
+            <text class="axis-label" :x="m.left - 10" :y="y(t) + 4" text-anchor="end">{{ money(t) }}</text>
+          </g>
+          <text v-for="d in dayTicks" :key="'d' + d" class="axis-label" :x="x(d)" :y="height - 6" text-anchor="middle">{{ d === 0 ? "Day 0" : d }}</text>
+          <path v-for="line in lines" :key="line.key" :class="['race-line', line.cls]" :d="line.d"></path>
+          <text v-for="l in labels" :key="'l' + l.key" :class="['race-label', { 'is-you': l.isYou }]" :x="l.x + 8" :y="l.y + 4">{{ l.text }}</text>
+        </svg>
+        <div class="skeleton-chart" v-else></div>
+      </div>
+    </section>
+  </script>
+
+  <!-- ===================== Trade box ===================== -->
+  <script type="text/x-template" id="trade-panel-tpl">
+    <section class="panel trade-panel" aria-labelledby="trade-title">
+      <template v-if="s">
+        <div class="side-switch" role="group" aria-label="Buy or sell">
+          <button type="button" :aria-pressed="String(side === 'buy')" @click="setSide('buy')">Buy</button>
+          <button type="button" :aria-pressed="String(side === 'sell')" @click="setSide('sell')" :disabled="owned === 0">Sell</button>
         </div>
-        <div class="race-wrap" id="race-wrap"><div class="skeleton-chart"></div></div>
-      </section>
-    </div>
 
-    <aside class="col-side">
-      <section class="panel trade-panel" aria-labelledby="trade-title">
-        <h2 id="trade-title">Trade</h2>
-        <form class="trade-form" id="trade-form" novalidate>
+        <h2 id="trade-title">{{ side === "buy" ? "Buy" : "Sell" }} {{ stock.symbol }} <span class="at-price">at {{ money(stock.price) }}</span></h2>
+
+        <form class="trade-form" novalidate @submit.prevent="submit">
           <div class="field">
             <label for="qty">Shares</label>
-            <div class="qty-row">
-              <input id="qty" name="qty" type="number" inputmode="numeric" min="1" step="1" value="10" required>
-              <button class="btn btn-ghost" id="max-btn" type="button">Max</button>
+            <input id="qty" v-model.trim="qty" type="text" inputmode="numeric" autocomplete="off"
+                   :aria-invalid="String(!!error)" aria-describedby="qty-helper qty-error">
+            <div class="chips">
+              <button v-for="c in chips" :key="c.label" type="button" class="chip" :disabled="c.qty < 1"
+                      @click="qty = String(c.qty)">{{ c.label }}</button>
             </div>
-            <p class="helper" id="qty-helper">&nbsp;</p>
+            <p class="helper" id="qty-helper">You can afford {{ count(maxBuy) }}. You own {{ count(owned) }}.</p>
+            <p class="field-error" id="qty-error" v-if="error">{{ error }}</p>
+            <p class="field-note" v-if="s.gameOver">The game is over. Start a new game to trade again.</p>
           </div>
-          <div class="order-total" id="order-total">&nbsp;</div>
-          <div class="trade-buttons">
-            <button class="btn btn-primary" id="buy-btn" type="submit" value="buy">Buy</button>
-            <button class="btn btn-outline" id="sell-btn" type="button">Sell</button>
+
+          <div class="order-total" v-if="qtyNum !== null">
+            <p><span>{{ count(qtyNum) }} x {{ money(stock.price) }}</span><span class="num">{{ money(value) }}</span></p>
+            <p><span>Fee {{ s.feeBp / 100 }}%</span><span class="num">{{ side === "buy" ? "+" : "-" }}{{ money(fee) }}</span></p>
+            <p class="order-sum"><span>{{ side === "buy" ? "You pay" : "You get" }}</span><b>{{ money(side === "buy" ? value + fee : value - fee) }}</b></p>
           </div>
-          <p class="trade-message" id="trade-message" aria-live="polite"></p>
+
+          <button class="btn btn-primary btn-block" type="submit" :disabled="!canSubmit">
+            {{ side === "buy" ? "Buy" : "Sell" }} {{ qtyNum === null ? "" : count(qtyNum) }} {{ stock.symbol }}
+          </button>
+          <p class="trade-message" :class="store.tradeMsg && (store.tradeMsg.ok ? 'ok' : 'error')" aria-live="polite">{{ store.tradeMsg ? store.tradeMsg.text : "" }}</p>
         </form>
-      </section>
+      </template>
+      <div class="skeleton-chart short" v-else></div>
+    </section>
+  </script>
 
-      <section class="plain account" aria-labelledby="account-title">
-        <h2 id="account-title">Your account</h2>
-        <p class="big-number" id="net-worth">&nbsp;</p>
-        <p class="change" id="net-change">&nbsp;</p>
-        <dl class="facts">
-          <div><dt>Cash</dt><dd id="cash">&nbsp;</dd></div>
-          <div><dt>In stocks</dt><dd id="invested">&nbsp;</dd></div>
-          <div><dt>Fees paid</dt><dd id="fees-paid">&nbsp;</dd></div>
-        </dl>
-        <h3>Holdings</h3>
-        <ul class="holdings" id="holdings"></ul>
-      </section>
+  <!-- ===================== Account ===================== -->
+  <script type="text/x-template" id="account-panel-tpl">
+    <section class="plain account" aria-labelledby="account-title" v-if="s">
+      <h2 id="account-title">Your account</h2>
+      <p class="big-number">{{ money(s.you.netWorth) }}</p>
+      <change-text :bp="changeBp(s.startCash, s.you.netWorth)" suffix=" since the start"></change-text>
+      <dl class="facts">
+        <div><dt>Cash</dt><dd>{{ money(s.you.cash) }}</dd></div>
+        <div><dt>In stocks</dt><dd>{{ money(s.you.netWorth - s.you.cash) }}</dd></div>
+        <div><dt>Fees paid</dt><dd>{{ money(s.you.feesPaid) }}</dd></div>
+      </dl>
+      <h3>Holdings</h3>
+      <ul class="holdings">
+        <li v-for="h in holdings" :key="h.symbol">
+          <button class="holding-link symbol" type="button" @click="select(h.index)">{{ h.symbol }}</button>
+          <span class="count">{{ count(h.shares) }} shares<span class="avg">paid {{ money(h.avg) }} each</span></span>
+          <span class="value">{{ money(h.value) }}
+            <span :class="['change', direction(h.pl)]">{{ signedMoney(h.pl) }} ({{ percent(h.plBp) }})</span>
+          </span>
+        </li>
+        <li class="empty" v-if="holdings.length === 0">No shares yet. Pick a stock and buy some.</li>
+      </ul>
+    </section>
+  </script>
 
-      <section class="plain trades-panel" aria-labelledby="trades-title">
-        <h2 id="trades-title">Your trades</h2>
-        <ol class="trades" id="trades"></ol>
-      </section>
+  <!-- ===================== Your trades ===================== -->
+  <script type="text/x-template" id="trades-list-tpl">
+    <section class="plain trades-panel" aria-labelledby="trades-title" v-if="s">
+      <h2 id="trades-title">Your trades</h2>
+      <ol class="trades">
+        <li v-for="(t, i) in newestFirst" :key="i">
+          <span class="trade-day">Day {{ t.day }}</span>
+          <span class="trade-what"><b :class="t.qty > 0 ? 'is-buy' : 'is-sell'">{{ t.qty > 0 ? "Bought" : "Sold" }}</b>
+            {{ count(Math.abs(t.qty)) }} {{ s.stocks[t.stock].symbol }} at {{ money(t.price) }}</span>
+          <span class="trade-fee">fee {{ money(t.fee) }}</span>
+        </li>
+        <li class="empty" v-if="s.trades.length === 0">No trades yet. Your buys and sells show up here and on the chart.</li>
+      </ol>
+    </section>
+  </script>
 
-      <section class="plain bots-panel" aria-labelledby="bots-title">
-        <h2 id="bots-title">Bots today</h2>
-        <ul class="bots" id="bots"></ul>
-      </section>
+  <!-- ===================== Bots ===================== -->
+  <script type="text/x-template" id="bots-list-tpl">
+    <section class="plain bots-panel" aria-labelledby="bots-title" v-if="s">
+      <h2 id="bots-title">{{ s.day === 0 ? "Bots" : "Bots on day " + s.day }}</h2>
+      <ul class="bots">
+        <li v-for="bot in s.bots" :key="bot.name">
+          <p class="bot-name">{{ bot.name }}</p>
+          <p class="bot-strategy">{{ bot.strategy }}</p>
+          <p class="bot-trades">{{ s.day === 0 ? "Waiting for day 1" : describe(bot.lastTrades) }}</p>
+        </li>
+      </ul>
+    </section>
+  </script>
 
-      <section class="plain alltime-panel" aria-labelledby="alltime-title">
-        <h2 id="alltime-title">All-time top 10</h2>
-        <p class="note">Finished games, saved in scores.txt by the C server.</p>
-        <ol class="alltime" id="alltime"></ol>
-      </section>
-    </aside>
-  </main>
+  <!-- ===================== All-time top 10 ===================== -->
+  <script type="text/x-template" id="all-time-tpl">
+    <section class="plain alltime-panel" aria-labelledby="alltime-title" v-if="s">
+      <h2 id="alltime-title">All-time top 10</h2>
+      <p class="note">Finished games, saved in scores.txt by the C server.</p>
+      <ol class="alltime">
+        <li v-for="(e, i) in s.allTime" :key="i" :class="{ you: s.resultSaved && s.yourPlace === i + 1 }">
+          <span class="board-rank">{{ i + 1 }}</span>
+          <span class="alltime-name">{{ e.name }}</span>
+          <span class="alltime-worth">{{ money(e.netWorth) }}</span>
+          <span class="alltime-meta">seed {{ e.seed }}, {{ e.date }}</span>
+        </li>
+        <li class="empty" v-if="s.allTime.length === 0">No finished games yet. Play all 30 days to get on the board.</li>
+      </ol>
+    </section>
+  </script>
 
-  <!-- Start a new game -->
-  <dialog id="new-game-dialog">
-    <form method="dialog" id="new-game-form" class="dialog-body">
-      <h2>New game</h2>
-      <div class="field">
-        <label for="name-input">Your name</label>
-        <input id="name-input" type="text" maxlength="23" autocomplete="nickname" placeholder="Player">
-        <p class="helper">Shown in the race and saved to the all-time top 10 when you finish.</p>
+  <!-- ===================== Start a game ===================== -->
+  <script type="text/x-template" id="start-dialog-tpl">
+    <dialog ref="dlg" class="start-dialog" @cancel="onCancel">
+      <form class="dialog-body" novalidate @submit.prevent="start">
+        <h2>{{ resumable ? "New game" : "Welcome to Trading Arena" }}</h2>
+        <p class="lead">You have 10,000.00 and 30 days. Try to beat three computer traders and the market.</p>
+        <ol class="how-to">
+          <li>Pick a stock, then buy or sell. Every trade costs a 0.15% fee.</li>
+          <li>Press Next day (or N). Prices move with the market, company news and luck.</li>
+          <li>After day 30, see how you did against the bots, the market and simply keeping your cash.</li>
+        </ol>
+        <div class="field">
+          <label for="name-input">Your name</label>
+          <input id="name-input" v-model="name" type="text" maxlength="23" autocomplete="nickname" placeholder="Player">
+          <p class="helper">Shown in the race and saved to the all-time top 10 when you finish.</p>
+        </div>
+        <div class="field">
+          <label for="seed-input">Seed (optional)</label>
+          <input id="seed-input" v-model.trim="seed" type="text" inputmode="numeric" placeholder="Random" :aria-invalid="String(!!seedError)">
+          <p class="helper">The same seed always gives the same prices and news. Seed 1 has a market crash on day 6.</p>
+          <p class="field-error" v-if="seedError">{{ seedError }}</p>
+        </div>
+        <div class="dialog-buttons">
+          <button v-if="resumable" class="btn btn-ghost" type="button" @click="close">Back to my game</button>
+          <button class="btn btn-primary" type="submit">Start trading</button>
+        </div>
+      </form>
+    </dialog>
+  </script>
+
+  <!-- ===================== Results ===================== -->
+  <script type="text/x-template" id="results-dialog-tpl">
+    <dialog ref="dlg">
+      <div class="dialog-body" v-if="s && s.gameOver">
+        <h2>{{ title }}</h2>
+        <p class="note">{{ s.you.netWorth < s.startCash ? "Markets are risky. That's the point." : "Was it skill or luck? Try another seed." }}</p>
+        <p class="saved-note" v-if="savedNote">{{ savedNote }}</p>
+        <ol class="board final-board">
+          <li v-for="(p, rank) in s.leaderboard" :key="rank" :class="{ you: p.isYou }">
+            <span class="board-rank">{{ rank + 1 }}</span>
+            <span>{{ p.name }}</span>
+            <span class="board-worth">{{ money(p.netWorth) }}</span>
+            <span class="board-pct"><change-text :bp="changeBp(s.startCash, p.netWorth)"></change-text></span>
+          </li>
+        </ol>
+        <div class="lesson">
+          <h3>If you had...</h3>
+          <table class="lesson-table">
+            <tr v-for="row in lessonRows" :key="row.label">
+              <th scope="row">{{ row.label }}</th>
+              <td class="num">{{ money(row.value) }}</td>
+              <td><change-text :bp="changeBp(s.startCash, row.value)"></change-text></td>
+            </tr>
+          </table>
+          <p class="lesson-verdict">{{ verdict }}</p>
+        </div>
+        <div class="dialog-buttons">
+          <button class="btn btn-ghost" type="button" @click="close">Close</button>
+          <button class="btn btn-ghost" type="button" @click="replay">Replay this seed</button>
+          <button class="btn btn-primary" type="button" @click="newGame">New game</button>
+        </div>
       </div>
-      <div class="field">
-        <label for="seed-input">Seed (optional)</label>
-        <input id="seed-input" type="number" inputmode="numeric" min="0" step="1" placeholder="Random">
-        <p class="helper">The same seed always gives the same prices and news.</p>
-      </div>
-      <div class="dialog-buttons">
-        <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Cancel</button>
-        <button class="btn btn-primary" value="start" type="submit">Start</button>
-      </div>
-    </form>
-  </dialog>
+    </dialog>
+  </script>
 
-  <!-- Shown when day 30 is reached -->
-  <dialog id="game-over-dialog">
-    <div class="dialog-body">
-      <h2 id="game-over-title">Final standings</h2>
-      <p class="note" id="game-over-note"></p>
-      <p class="saved-note" id="saved-note"></p>
-      <ol class="board" id="final-board"></ol>
-      <div class="lesson">
-        <h3>If you had...</h3>
-        <table class="lesson-table" id="lesson-table"></table>
-        <p class="lesson-verdict" id="lesson-verdict"></p>
-      </div>
-      <div class="dialog-buttons">
-        <button class="btn btn-ghost" id="close-over-btn" type="button">Close</button>
-        <button class="btn btn-ghost" id="replay-btn" type="button">Replay this seed</button>
-        <button class="btn btn-primary" id="over-new-btn" type="button">New game</button>
-      </div>
-    </div>
-  </dialog>
-
+  <script src="/vue.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -30,6 +30,7 @@
   --news-soft:   #fdf3dc;
   --news-edge:   #e2b23f;
   --shadow:      0 1px 2px rgb(22 22 21 / 0.06), 0 8px 24px rgb(22 22 21 / 0.06);
+  --raised:      #fcfcfb;   /* the selected half of a switch: lighter than its track */
 
   --radius: 8px;
   --days: 30;               /* segments in the day meter */
@@ -58,6 +59,7 @@
     --news-soft:   #33290f;
     --news-edge:   #b88a1c;
     --shadow:      0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+    --raised:      #34342f;
   }
 }
 
@@ -74,6 +76,15 @@ body {
 h1, h2, h3, p { margin: 0; }
 h2 { font-size: 15px; font-weight: 600; }
 h3 { font-size: 13px; font-weight: 600; color: var(--text-2); margin-top: 20px; }
+
+[v-cloak] { display: none; }
+
+.skip-link {
+  position: absolute; left: 16px; top: -48px; z-index: 20;
+  padding: 8px 12px; border-radius: var(--radius);
+  background: var(--accent-strong); color: var(--on-accent); font-weight: 600;
+}
+.skip-link:focus { top: 12px; }
 
 .sr-only {
   position: absolute; width: 1px; height: 1px; overflow: hidden;
@@ -186,6 +197,7 @@ input {
   min-width: 0;
 }
 input::placeholder { color: var(--text-3); }
+#name-input { font-family: var(--font); }   /* names are words, not numbers */
 .helper { font-size: 13px; color: var(--text-3); }
 
 /* ---------- Banners ---------- */
@@ -413,8 +425,53 @@ code { font-family: var(--mono); font-size: 13px; }
 .order-total .num { font-family: var(--mono); }
 .order-total .order-sum { padding-top: 4px; border-top: 1px solid var(--border); font-size: 14px; }
 .order-total b { color: var(--text); font-family: var(--mono); font-weight: 600; font-size: 16px; }
-.trade-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.trade-buttons .btn { height: 44px; font-size: 15px; }
+/* Buy / Sell switch: one control, two halves. */
+.side-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.side-switch button {
+  font: 600 14px var(--font);
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.side-switch button[aria-pressed="true"] { background: var(--raised); color: var(--text); box-shadow: var(--shadow); }
+.side-switch button:disabled { opacity: 0.45; cursor: not-allowed; }
+.side-switch button:focus-visible, .chip:focus-visible, .holding-link:focus-visible, .recap-close:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.at-price { font: 500 14px var(--mono); color: var(--text-3); }
+
+/* Quick amounts under the shares box */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font: 600 12px var(--font);
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.chip:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.chip:active:not(:disabled) { transform: scale(0.97); }
+.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.field-error { font-size: 13px; color: var(--down); }
+.field-note { font-size: 13px; font-weight: 600; color: var(--text-2); }
+input[aria-invalid="true"] { border-color: var(--down); }
+.btn-block { width: 100%; height: 44px; font-size: 15px; }
 .trade-message { font-size: 14px; min-height: 21px; }
 .trade-message:empty { display: none; }
 .trade-message.ok { color: var(--up); }
@@ -445,7 +502,7 @@ code { font-family: var(--mono); font-size: 13px; }
 
 /* ---------- Final standings (dialog) ---------- */
 
-#final-board li {
+.final-board li {
   display: grid;
   grid-template-columns: auto 1fr auto 72px;
   gap: 12px;
@@ -454,9 +511,9 @@ code { font-family: var(--mono); font-size: 13px; }
   border-radius: var(--radius);
   font-size: 14px;
 }
-#final-board li.you { background: var(--accent-soft); font-weight: 600; }
-#final-board .board-worth { font-family: var(--mono); }
-#final-board .board-pct { text-align: right; font-size: 13px; font-weight: 600; }
+.final-board li.you { background: var(--accent-soft); font-weight: 600; }
+.final-board .board-worth { font-family: var(--mono); }
+.final-board .board-pct { text-align: right; font-size: 13px; font-weight: 600; }
 
 /* ---------- Lesson (game over) ---------- */
 
@@ -468,6 +525,56 @@ code { font-family: var(--mono); font-size: 13px; }
 .lesson-table tr:first-child th, .lesson-table tr:first-child td { font-weight: 700; }
 .lesson-table .change { font-size: 13px; }
 .lesson-verdict { margin-top: 10px; font-size: 14px; color: var(--text-2); }
+
+/* ---------- Day recap (after Next day) ---------- */
+
+.recap {
+  max-width: 1232px;
+  width: calc(100% - 48px);
+  margin: 16px auto 0;
+  padding: 10px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 20px;
+  row-gap: 4px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-size: 14px;
+}
+.recap.is-crash { border-left-color: var(--down); background: var(--down-soft); }
+.recap.is-rally { border-left-color: var(--up); }
+.recap-day { font-weight: 700; }
+.recap-item { color: var(--text-2); }
+.recap-news { flex: 1 1 240px; }
+.recap-news.quiet { color: var(--text-3); }
+.recap-close {
+  font: 600 13px var(--font);
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.recap-close:hover { color: var(--text); }
+
+/* ---------- Start screen ---------- */
+
+.start-dialog { width: min(520px, calc(100vw - 32px)); }
+.start-dialog h2 { font-size: 22px; letter-spacing: -0.01em; }
+.lead { font-size: 15px; color: var(--text-2); max-width: 60ch; }
+.how-to { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; color: var(--text-2); }
+.how-to li::marker { color: var(--accent-strong); font-weight: 700; }
+
+.holding-link {
+  border: 0; background: transparent; color: var(--text); padding: 0; cursor: pointer; text-align: left;
+  text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px;
+}
+.holding-link:hover { text-decoration-color: var(--accent); }
+
+.skeleton-chart.short { height: 220px; }
 
 /* ---------- The race ---------- */
 
@@ -571,6 +678,7 @@ dialog::backdrop { background: rgb(18 18 17 / 0.5); }
 }
 
 @media (max-width: 640px) {
+  .recap { width: calc(100% - 32px); }
   .topbar-inner, .layout { padding-left: 16px; padding-right: 16px; }
   .topbar-inner { padding-top: 10px; padding-bottom: 10px; }
   .brand h1 { font-size: 16px; }
