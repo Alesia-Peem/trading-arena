@@ -1,0 +1,700 @@
+/*
+ * Trading Arena styles.
+ *
+ * Rules used everywhere on this page:
+ *   - Colors come only from the tokens below (light and dark mode).
+ *   - One accent color (blue). Green and red only mean "price up" / "price down",
+ *     and always come with a + or - sign so color is never the only clue.
+ *   - Corners: 8px on everything. Numbers use tabular digits so columns line up.
+ *   - Only the race (top) and the trade box have a strong frame: they are what
+ *     you look at and click most. Account and bots sit on the page, with no box.
+ */
+
+:root {
+  color-scheme: light;
+  --page:        #f2f2ef;
+  --surface:     #fcfcfb;
+  --surface-2:   #f4f4f1;
+  --border:      #e3e2dd;
+  --grid:        #ecebe7;
+  --text:        #161615;
+  --text-2:      #52514e;
+  --text-3:      #6f6e68;
+  --accent:      #2a78d6;   /* chart line, meter */
+  --accent-strong: #2366b8; /* buttons, links (passes 4.5:1) */
+  --accent-soft: #cde2fb;   /* selected row, your tile */
+  --on-accent:   #fcfcfb;
+  --up:          #087208;
+  --down:        #c43434;
+  --down-soft:   #fbeaea;
+  --news-soft:   #fdf3dc;
+  --news-edge:   #e2b23f;
+  --shadow:      0 1px 2px rgb(22 22 21 / 0.06), 0 8px 24px rgb(22 22 21 / 0.06);
+  --raised:      #fcfcfb;   /* the selected half of a switch: lighter than its track */
+
+  --radius: 8px;
+  --days: 30;               /* segments in the day meter */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page:        #121211;
+    --surface:     #1a1a19;
+    --surface-2:   #222220;
+    --border:      #2e2e2b;
+    --grid:        #2a2a28;
+    --text:        #f0efec;
+    --text-2:      #c3c2b7;
+    --text-3:      #9a998f;
+    --accent:      #3987e5;
+    --accent-strong: #2a6fc4;
+    --accent-soft: #17345a;
+    --on-accent:   #fcfcfb;
+    --up:          #2fb52f;
+    --down:        #f07070;
+    --down-soft:   #3a1e1e;
+    --news-soft:   #33290f;
+    --news-edge:   #b88a1c;
+    --shadow:      0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+    --raised:      #34342f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font: 15px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p { margin: 0; }
+h2 { font-size: 15px; font-weight: 600; }
+h3 { font-size: 13px; font-weight: 600; color: var(--text-2); margin-top: 20px; }
+
+[v-cloak] { display: none; }
+
+.skip-link {
+  position: absolute; left: 16px; top: -48px; z-index: 20;
+  padding: 8px 12px; border-radius: var(--radius);
+  background: var(--accent-strong); color: var(--on-accent); font-weight: 600;
+}
+.skip-link:focus { top: 12px; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+.num, .big-number, .price, .change, dd, .board-worth, .board-pct {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Top bar ---------- */
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: grid;
+  grid-template-columns: auto minmax(200px, 420px) auto;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+
+.brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.seed { font-size: 13px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.progress-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; gap: 12px; }
+.index-text { font-weight: 500; color: var(--text-2); white-space: nowrap; }
+.index-text .change { font-size: 13px; }
+
+/* The day meter: 30 small segments, one per trading day. The mask cuts the
+   bar into segments, so the track and the fill both look segmented. */
+.meter {
+  height: 8px;
+  background: var(--accent-soft);
+  border-radius: 2px;
+  overflow: hidden;
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 calc(100% / var(--days) - 2px), transparent 0 calc(100% / var(--days)));
+          mask-image: repeating-linear-gradient(90deg, #000 0 calc(100% / var(--days) - 2px), transparent 0 calc(100% / var(--days)));
+}
+.meter-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.topbar-actions { display: flex; gap: 8px; }
+
+/* ---------- Buttons and fields ---------- */
+
+.btn {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.btn:active:not(:disabled) { transform: scale(0.98); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:focus-visible, input:focus-visible, .stock-row:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-primary { background: var(--accent-strong); color: var(--on-accent); }
+.btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+.btn-outline { background: transparent; color: var(--text); border-color: var(--border); }
+.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+.btn-ghost { background: transparent; color: var(--text-2); border-color: var(--border); }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+
+kbd {
+  font: 11px/1 var(--mono);
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.18);
+}
+
+.field { display: grid; gap: 6px; }
+label { font-size: 13px; font-weight: 600; color: var(--text-2); }
+input {
+  font: 15px var(--mono);
+  height: 40px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--page);
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+}
+input::placeholder { color: var(--text-3); }
+#name-input { font-family: var(--font); }   /* names are words, not numbers */
+.helper { font-size: 13px; color: var(--text-3); }
+
+/* ---------- Banners ---------- */
+
+.banner {
+  max-width: 1232px;
+  margin: 16px auto 0;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: calc(100% - 48px);
+}
+.banner[hidden] { display: none; }
+.banner-error { background: var(--down-soft); color: var(--text); justify-content: space-between; }
+.banner-news { background: var(--news-soft); border-left: 3px solid var(--news-edge); }
+.banner-news.is-crash { background: var(--down-soft); border-left-color: var(--down); }
+.banner-news.is-rally { border-left-color: var(--up); }
+.banner-news strong {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+code { font-family: var(--mono); font-size: 13px; }
+
+/* ---------- Layout ---------- */
+
+.layout {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px 24px 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+.col-main, .col-side { display: grid; gap: 16px; min-width: 0; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.panel > h2 { margin-bottom: 12px; }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+.note { font-size: 13px; color: var(--text-3); }
+
+/* Account and bots: no box, just a line above, so they read as quieter. */
+.plain { padding: 16px 4px 0; border-top: 1px solid var(--border); }
+.plain > h2 { margin-bottom: 8px; }
+
+.big-number { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.change { font-size: 14px; font-weight: 600; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.flat { color: var(--text-3); }
+
+/* ---------- The race (standings) ---------- */
+
+.standings { grid-column: 1 / -1; }
+
+.standings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.standings-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "rank  name"
+    "worth worth"
+    "pct   pct";
+  column-gap: 10px;
+  align-items: baseline;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.standings-list .board-rank { grid-area: rank; }
+.standings-list li > span:nth-child(2) {
+  grid-area: name;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.standings-list .board-worth { grid-area: worth; font: 700 22px/1.3 var(--mono); letter-spacing: -0.02em; margin-top: 6px; }
+.standings-list .board-pct { grid-area: pct; }
+.standings-list .board-pct .change { font-size: 13px; }
+
+/* Your tile: the one strong highlight on the page. */
+.standings-list li.you {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent), var(--shadow);
+}
+.standings-list li.you .board-rank { background: var(--accent-strong); color: var(--on-accent); }
+
+.board-rank {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font: 600 13px var(--mono);
+}
+
+.skeleton-tile { height: 98px; background: var(--surface-2) !important; border-color: transparent !important; }
+
+/* ---------- Stock list ---------- */
+
+.stock-list { display: grid; gap: 2px; }
+
+.stock-row {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 96px 96px 80px;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.stock-row:hover { background: var(--surface-2); }
+.stock-row[aria-pressed="true"] { background: var(--accent-soft); }
+
+.symbol { font: 600 14px var(--mono); }
+.name-cell { display: flex; flex-direction: column; min-width: 0; }
+.stock-name { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stock-owned { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.price { font: 14px var(--mono); text-align: right; }
+.stock-row .change { text-align: right; font-size: 13px; }
+.spark { width: 96px; height: 28px; display: block; }
+.spark path { fill: none; stroke: var(--text-3); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.stock-row[aria-pressed="true"] .spark path { stroke: var(--accent); }
+
+.skeleton-row, .skeleton-chart {
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.skeleton-row { height: 48px; }
+.skeleton-chart { height: 280px; }
+
+/* ---------- Chart ---------- */
+
+.chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+.chart-price { text-align: right; }
+
+.chart-wrap { position: relative; }
+.chart-wrap svg { display: block; width: 100%; height: 280px; overflow: visible; }
+
+.axis-label { font: 11px var(--mono); fill: var(--text-3); }
+.gridline { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+.price-area { fill: var(--accent); opacity: 0.1; }
+.price-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.market-line { fill: none; stroke: var(--text-3); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.tooltip .tip-market { display: block; margin-top: 2px; }
+.trade-mark circle { stroke: var(--surface); stroke-width: 2; }
+.trade-mark.is-buy circle { fill: var(--accent-strong); }
+.trade-mark.is-sell circle { fill: var(--text); }
+.trade-mark text { font: 700 10px var(--font); fill: var(--surface); pointer-events: none; }
+.end-dot, .hover-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.crosshair { stroke: var(--text-3); stroke-width: 1; shape-rendering: crispEdges; }
+
+.tooltip {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+.tooltip[hidden] { display: none; }
+.tooltip strong { display: block; font: 600 14px var(--mono); }
+.tooltip span { color: var(--text-3); }
+
+.table-view { margin-top: 12px; font-size: 13px; color: var(--text-2); }
+.table-view summary { cursor: pointer; width: fit-content; }
+.table-scroll { max-height: 240px; overflow: auto; margin-top: 8px; }
+.table-view table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.table-view th, .table-view td { text-align: right; padding: 4px 12px; }
+.table-view th:first-child, .table-view td:first-child { text-align: left; }
+.table-view thead th { position: sticky; top: 0; background: var(--surface); color: var(--text-3); font-weight: 600; }
+
+/* ---------- Trade ---------- */
+
+.trade-panel { box-shadow: var(--shadow); border-top: 3px solid var(--accent); }
+.trade-panel > h2 { font-size: 17px; }
+
+.trade-form { display: grid; gap: 14px; }
+.qty-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.order-total {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.order-total p { display: flex; justify-content: space-between; align-items: baseline; }
+.order-total .num { font-family: var(--mono); }
+.order-total .order-sum { padding-top: 4px; border-top: 1px solid var(--border); font-size: 14px; }
+.order-total b { color: var(--text); font-family: var(--mono); font-weight: 600; font-size: 16px; }
+/* Buy / Sell switch: one control, two halves. */
+.side-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.side-switch button {
+  font: 600 14px var(--font);
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.side-switch button[aria-pressed="true"] { background: var(--raised); color: var(--text); box-shadow: var(--shadow); }
+.side-switch button:disabled { opacity: 0.45; cursor: not-allowed; }
+.side-switch button:focus-visible, .chip:focus-visible, .holding-link:focus-visible, .recap-close:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.at-price { font: 500 14px var(--mono); color: var(--text-3); }
+
+/* Quick amounts under the shares box */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font: 600 12px var(--font);
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.chip:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.chip:active:not(:disabled) { transform: scale(0.97); }
+.chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.field-error { font-size: 13px; color: var(--down); }
+.field-note { font-size: 13px; font-weight: 600; color: var(--text-2); }
+input[aria-invalid="true"] { border-color: var(--down); }
+.btn-block { width: 100%; height: 44px; font-size: 15px; }
+.trade-message { font-size: 14px; min-height: 21px; }
+.trade-message:empty { display: none; }
+.trade-message.ok { color: var(--up); }
+.trade-message.error { color: var(--down); }
+
+/* ---------- Account ---------- */
+
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; }
+.facts dt { font-size: 13px; color: var(--text-3); }
+.facts dd { margin: 0; font: 600 15px var(--mono); }
+
+.holdings, .board, .bots { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.holdings { margin-top: 8px; }
+.holdings li {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 6px 0;
+  font-size: 14px;
+}
+.holdings li + li { border-top: 1px solid var(--grid); }
+.holdings .empty { display: block; color: var(--text-3); }
+.holdings .value { font-family: var(--mono); text-align: right; display: grid; }
+.holdings .value .change { font-size: 12px; }
+.holdings .count { color: var(--text-2); display: grid; }
+.holdings .avg { font-size: 12px; color: var(--text-3); }
+
+/* ---------- Final standings (dialog) ---------- */
+
+.final-board li {
+  display: grid;
+  grid-template-columns: auto 1fr auto 72px;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+.final-board li.you { background: var(--accent-soft); font-weight: 600; }
+.final-board .board-worth { font-family: var(--mono); }
+.final-board .board-pct { text-align: right; font-size: 13px; font-weight: 600; }
+
+/* ---------- Lesson (game over) ---------- */
+
+.lesson h3 { margin: 4px 0 8px; }
+.lesson-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.lesson-table th { text-align: left; font-weight: 500; padding: 6px 0; }
+.lesson-table td { text-align: right; padding: 6px 0 6px 12px; white-space: nowrap; }
+.lesson-table td.num { font-family: var(--mono); }
+.lesson-table tr:first-child th, .lesson-table tr:first-child td { font-weight: 700; }
+.lesson-table .change { font-size: 13px; }
+.lesson-verdict { margin-top: 10px; font-size: 14px; color: var(--text-2); }
+
+/* ---------- Day recap (after Next day) ---------- */
+
+.recap {
+  max-width: 1232px;
+  width: calc(100% - 48px);
+  margin: 16px auto 0;
+  padding: 10px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 20px;
+  row-gap: 4px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-size: 14px;
+}
+.recap.is-crash { border-left-color: var(--down); background: var(--down-soft); }
+.recap.is-rally { border-left-color: var(--up); }
+.recap-day { font-weight: 700; }
+.recap-item { color: var(--text-2); }
+.recap-news { flex: 1 1 240px; }
+.recap-news.quiet { color: var(--text-3); }
+.recap-close {
+  font: 600 13px var(--font);
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.recap-close:hover { color: var(--text); }
+
+/* ---------- Start screen ---------- */
+
+.start-dialog { width: min(520px, calc(100vw - 32px)); }
+.start-dialog h2 { font-size: 22px; letter-spacing: -0.01em; }
+.lead { font-size: 15px; color: var(--text-2); max-width: 60ch; }
+.how-to { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; color: var(--text-2); }
+.how-to li::marker { color: var(--accent-strong); font-weight: 700; }
+
+.holding-link {
+  border: 0; background: transparent; color: var(--text); padding: 0; cursor: pointer; text-align: left;
+  text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px;
+}
+.holding-link:hover { text-decoration-color: var(--accent); }
+
+.skeleton-chart.short { height: 220px; }
+
+/* ---------- The race ---------- */
+
+.race-wrap svg { display: block; width: 100%; height: 240px; overflow: visible; }
+.race-line { fill: none; stroke: var(--text-3); stroke-width: 1.5; stroke-linejoin: round; }
+.race-line.bot-1 { stroke-dasharray: 6 4; }
+.race-line.bot-2 { stroke-dasharray: 2 3; }
+.race-line.bot-3 { stroke-dasharray: 10 3 2 3; }
+.race-line.is-you { stroke: var(--accent); stroke-width: 2.5; }
+.race-label { font: 12px var(--font); fill: var(--text-2); }
+.race-label.is-you { font-weight: 700; fill: var(--accent-strong); }
+
+/* ---------- Your trades ---------- */
+
+.trades { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
+.trades li {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.trades li + li { border-top: 1px solid var(--grid); }
+.trades .empty { display: block; color: var(--text-3); font-size: 14px; }
+.trade-day { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.trade-what { font-variant-numeric: tabular-nums; }
+.trade-what .is-buy { color: var(--accent-strong); }
+.trade-fee { color: var(--text-3); font: 12px var(--mono); }
+
+/* ---------- All-time top 10 ---------- */
+
+.alltime-panel .note { margin-bottom: 8px; }
+.alltime { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.alltime li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "rank name worth" "rank meta meta";
+  column-gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+.alltime li.you { background: var(--accent-soft); }
+.alltime .board-rank { grid-area: rank; }
+.alltime-name { grid-area: name; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alltime-worth { grid-area: worth; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.alltime-meta { grid-area: meta; font-size: 12px; color: var(--text-3); }
+.alltime .empty { display: block; color: var(--text-3); padding: 0; }
+.saved-note { font-size: 14px; font-weight: 600; color: var(--accent-strong); }
+.saved-note:empty { display: none; }
+
+/* ---------- Bots ---------- */
+
+.bots li { padding: 10px 0; }
+.bots li + li { border-top: 1px solid var(--grid); }
+.bot-name { font-weight: 600; font-size: 14px; }
+.bot-strategy { font-size: 13px; color: var(--text-3); }
+.bot-trades { font: 13px var(--mono); margin-top: 4px; color: var(--text-2); }
+
+/* ---------- Dialogs ---------- */
+
+dialog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0;
+  width: min(460px, calc(100vw - 32px));
+  box-shadow: var(--shadow);
+}
+dialog::backdrop { background: rgb(18 18 17 / 0.5); }
+.dialog-body { padding: 24px; display: grid; gap: 16px; }
+.dialog-body h2 { font-size: 20px; }
+.dialog-buttons { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+
+/* ---------- Tablets and phones ---------- */
+
+@media (max-width: 960px) {
+  /* minmax(0, 1fr), not 1fr: lets the column shrink to the screen instead of
+     growing to fit its widest content (which made the page scroll sideways). */
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .topbar-inner { grid-template-columns: minmax(0, 1fr) auto; row-gap: 10px; }
+  .progress { grid-column: 1 / -1; grid-row: 2; }
+
+  /* One column, in the order you play: race, pick a stock, trade, then details.
+     display: contents lets the sections inside both columns be reordered. */
+  .col-main, .col-side { display: contents; }
+  .standings   { order: 0; }
+  .market      { order: 1; }
+  .trade-panel { order: 2; }
+  .chart-card  { order: 3; }
+  .race-card   { order: 4; }
+  .account     { order: 5; }
+  .trades-panel { order: 6; }
+  .bots-panel  { order: 7; }
+  .alltime-panel { order: 8; }
+
+  .standings-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .recap { width: calc(100% - 32px); }
+  .topbar-inner, .layout { padding-left: 16px; padding-right: 16px; }
+  .topbar-inner { padding-top: 10px; padding-bottom: 10px; }
+  .brand h1 { font-size: 16px; }
+  .btn { padding: 0 12px; }
+  .panel { padding: 16px; }
+  .chart-head { flex-wrap: wrap; }
+  .chart-price { text-align: left; }
+  .banner { width: calc(100% - 32px); }
+  .stock-row { grid-template-columns: 48px minmax(0, 1fr) 72px 64px; gap: 8px; padding: 10px 8px; }
+  .stock-row .spark-cell { display: none; }
+  .standings-list { gap: 8px; }
+  .standings-list li { padding: 12px; }
+  .standings-list .board-worth { font-size: 18px; }
+  kbd { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
