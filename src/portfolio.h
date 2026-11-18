@@ -3,17 +3,39 @@
 
 #include "market.h"
 
-#define START_CASH 1000000L
-#define MAX_ORDER_QTY 1000000
+/*
+ * A portfolio = one player's cash plus how many shares they own of each stock.
+ * You and every bot each have one.
+ */
 
-enum { TRADE_OK = 0, TRADE_BAD_INPUT = -1, TRADE_NO_CASH = -2, TRADE_NO_SHARES = -3 };
+#define START_CASH    1000000L   /* $10,000.00 in cents */
+#define MAX_ORDER_QTY 1000000    /* the most shares you can buy or sell in one order */
 
-typedef struct { char name[24]; long cash; long shares[NUM_STOCKS]; } Portfolio;
+/* What portfolio_buy / portfolio_sell return. */
+enum {
+    TRADE_OK        =  0,   /* it worked */
+    TRADE_BAD_INPUT = -1,   /* no such stock, or a silly quantity like 0 or -5 */
+    TRADE_NO_CASH   = -2,   /* not enough money to buy that many */
+    TRADE_NO_SHARES = -3,   /* trying to sell more shares than you own */
+};
 
+typedef struct {
+    char name[24];
+    long cash;                   /* in cents */
+    long shares[NUM_STOCKS];     /* shares[i] = how many shares of stock i you own */
+} Portfolio;
+
+/* Empty portfolio: just a name and some cash. Long names are cut to 23 letters. */
 void portfolio_init(Portfolio *p, const char *name, long cash);
-int  portfolio_buy (Portfolio *p, const Market *m, int stock, long qty);
-int  portfolio_sell(Portfolio *p, const Market *m, int stock, long qty);
-long portfolio_value(const Portfolio *p, const Market *m);            /* cash + shares x current price */
-long max_affordable(const Portfolio *p, const Market *m, int stock);  /* cash / price; 0 if bad stock */
+
+/* Buy or sell `qty` shares of stock number `stock` at today's price. Returns a TRADE_ code. */
+int portfolio_buy(Portfolio *p, const Market *m, int stock, long qty);
+int portfolio_sell(Portfolio *p, const Market *m, int stock, long qty);
+
+/* Net worth: cash + (shares x today's price) for every stock. */
+long portfolio_value(const Portfolio *p, const Market *m);
+
+/* How many shares of `stock` you can afford right now (0 if `stock` isn't valid). */
+long max_affordable(const Portfolio *p, const Market *m, int stock);
 
 #endif

@@ -1,3 +1,7 @@
 arena
 tests/*_test
 .superpowers/
+arena-server
+.DS_Store
+.vscode/
+tests/build/

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trading Arena</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- The game itself runs in C (src/server.c). This page only shows it and sends your clicks. -->
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <h1>Trading Arena</h1>
+        <p class="seed" id="seed">Connecting to the C server</p>
+      </div>
+
+      <div class="progress" aria-live="polite">
+        <p class="progress-label"><span id="day-text">Day 0 of 30</span></p>
+        <div class="meter" aria-hidden="true"><div class="meter-fill" id="day-meter"></div></div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="btn btn-ghost" id="new-game-btn" type="button">New game</button>
+        <button class="btn btn-primary" id="next-day-btn" type="button">
+          Next day <kbd>N</kbd>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="banner banner-error" id="connection-error" role="alert" hidden>
+    <p>Can't reach the game server. Start it with <code>./arena-server</code> in the trading-arena folder, then try again.</p>
+    <button class="btn btn-ghost" id="retry-btn" type="button">Try again</button>
+  </div>
+
+  <div class="banner banner-news" id="news" role="status" hidden>
+    <strong>Breaking</strong>
+    <p id="news-text"></p>
+  </div>
+
+  <main class="layout" id="app" aria-busy="true">
+    <div class="col-main">
+      <section class="card" aria-labelledby="market-title">
+        <div class="card-head">
+          <h2 id="market-title">Market</h2>
+          <p class="card-note">Pick a stock to see its chart. Keys 1 to 5 work too.</p>
+        </div>
+        <div class="stock-list" id="stock-list">
+          <div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>
+          <div class="skeleton-row"></div><div class="skeleton-row"></div>
+        </div>
+      </section>
+
+      <section class="card chart-card" aria-labelledby="chart-title">
+        <div class="chart-head">
+          <div>
+            <h2 id="chart-title">&nbsp;</h2>
+            <p class="card-note" id="chart-subtitle">&nbsp;</p>
+          </div>
+          <div class="chart-price">
+            <p class="big-number" id="chart-price">&nbsp;</p>
+            <p class="change" id="chart-change">&nbsp;</p>
+          </div>
+        </div>
+        <div class="chart-wrap" id="chart-wrap">
+          <div class="skeleton-chart"></div>
+        </div>
+        <details class="table-view">
+          <summary>Show prices as a table</summary>
+          <div class="table-scroll"><table id="price-table"></table></div>
+        </details>
+      </section>
+    </div>
+
+    <aside class="col-side">
+      <section class="card" aria-labelledby="trade-title">
+        <h2 id="trade-title">Trade</h2>
+        <form class="trade-form" id="trade-form" novalidate>
+          <div class="field">
+            <label for="qty">Shares</label>
+            <div class="qty-row">
+              <input id="qty" name="qty" type="number" inputmode="numeric" min="1" step="1" value="10" required>
+              <button class="btn btn-ghost" id="max-btn" type="button">Max</button>
+            </div>
+            <p class="helper" id="qty-helper">&nbsp;</p>
+          </div>
+          <p class="order-total" id="order-total">&nbsp;</p>
+          <div class="trade-buttons">
+            <button class="btn btn-primary" id="buy-btn" type="submit" value="buy">Buy</button>
+            <button class="btn btn-outline" id="sell-btn" type="button">Sell</button>
+          </div>
+          <p class="trade-message" id="trade-message" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section class="card" aria-labelledby="account-title">
+        <h2 id="account-title">Your account</h2>
+        <p class="big-number" id="net-worth">&nbsp;</p>
+        <p class="change" id="net-change">&nbsp;</p>
+        <dl class="facts">
+          <div><dt>Cash</dt><dd id="cash">&nbsp;</dd></div>
+          <div><dt>In stocks</dt><dd id="invested">&nbsp;</dd></div>
+        </dl>
+        <h3>Holdings</h3>
+        <ul class="holdings" id="holdings"></ul>
+      </section>
+
+      <section class="card" aria-labelledby="board-title">
+        <h2 id="board-title">Leaderboard</h2>
+        <ol class="board" id="leaderboard"></ol>
+      </section>
+
+      <section class="card" aria-labelledby="bots-title">
+        <h2 id="bots-title">Bots today</h2>
+        <ul class="bots" id="bots"></ul>
+      </section>
+    </aside>
+  </main>
+
+  <!-- Start a new game -->
+  <dialog id="new-game-dialog">
+    <form method="dialog" id="new-game-form" class="dialog-body">
+      <h2>New game</h2>
+      <div class="field">
+        <label for="seed-input">Seed (optional)</label>
+        <input id="seed-input" type="number" inputmode="numeric" min="0" step="1" placeholder="Random">
+        <p class="helper">The same seed always gives the same prices and news.</p>
+      </div>
+      <div class="dialog-buttons">
+        <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Cancel</button>
+        <button class="btn btn-primary" value="start" type="submit">Start</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Shown when day 30 is reached -->
+  <dialog id="game-over-dialog">
+    <div class="dialog-body">
+      <h2 id="game-over-title">Final standings</h2>
+      <p class="card-note" id="game-over-note"></p>
+      <ol class="board" id="final-board"></ol>
+      <div class="dialog-buttons">
+        <button class="btn btn-ghost" id="close-over-btn" type="button">Close</button>
+        <button class="btn btn-ghost" id="replay-btn" type="button">Replay this seed</button>
+        <button class="btn btn-primary" id="over-new-btn" type="button">New game</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

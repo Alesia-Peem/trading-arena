@@ -1,17 +1,46 @@
+/*
+ * Stock Trading Arena
+ *
+ * You start with $10,000 and trade 5 stocks for 30 days against 3 computer bots.
+ * Whoever has the highest net worth at the end wins.
+ *
+ * Run:  ./arena          (random game)
+ *       ./arena 42       (same game every time you use seed 42)
+ */
+
 #include <stdio.h>
 #include <time.h>
-#include "rng.h"
-#include "market.h"
-#include "portfolio.h"
-#include "bots.h"
+#include "game.h"
 #include "display.h"
 #include "input.h"
 
+#define MAX_SEED 2147483647L
+
+/* The numbers the player types in the menu. */
+enum {
+    MENU_QUIT      = 0,
+    MENU_MARKET    = 1,
+    MENU_CHART     = 2,
+    MENU_BUY       = 3,
+    MENU_SELL      = 4,
+    MENU_PORTFOLIO = 5,
+    MENU_NEXT_DAY  = 6,
+};
+
+/* Note: many functions below return 0 when input ended (EOF), which means "stop the game". */
+
+/* ---------- Showing things ---------- */
+
 static void show_day(const Market *m, const Portfolio *you) {
-    char cash[32], worth[32];
     printf("\n=== Day %d/%d ===\n", m->day, NUM_DAYS);
-    if (m->news[0]) printf("NEWS: %s\n", m->news);
+    if (m->news[0] != '\0') {
+        printf("NEWS: %s\n", m->news);
+    }
+
     print_market(m);
+
+    char cash[32];
+    char worth[32];
     format_money(you->cash, cash, sizeof cash);
     format_money(portfolio_value(you, m), worth, sizeof worth);
     printf("Cash: $%s   Net worth: $%s\n", cash, worth);
@@ -21,116 +50,204 @@ static void print_menu(void) {
     printf("\n1 Market  2 Chart  3 Buy  4 Sell  5 Portfolio  6 Next day  0 Quit\n");
 }
 
-/* returns 0 on EOF */
-static int pick_stock(long *idx) {
-    long c;
-    if (!read_long("Stock (1-5): ", 1, NUM_STOCKS, &c)) return 0;
-    *idx = c - 1;
+/* ---------- Player actions ---------- */
+
+/* Ask which stock (1-5) and store it as an index (0-4). */
+static int pick_stock(long *index) {
+    long number;
+    if (!read_long("Stock (1-5): ", 1, NUM_STOCKS, &number)) {
+        return 0;
+    }
+    *index = number - 1;
+    return 1;
+}
+
+static int do_chart(const Market *m) {
+    long s;
+    if (!pick_stock(&s)) {
+        return 0;
+    }
+    print_chart(&m->stocks[s]);
     return 1;
 }
 
 static int do_buy(Portfolio *you, const Market *m) {
-    long s, qty, maxq;
+    long s;
+    if (!pick_stock(&s)) {
+        return 0;
+    }
+    const char *symbol = m->stocks[s].symbol;
+
+    long can_afford = max_affordable(you, m, (int)s);
+    if (can_afford <= 0) {
+        printf("You can't afford any %s right now.\n", symbol);
+        return 1;
+    }
+    if (can_afford > MAX_ORDER_QTY) {
+        can_afford = MAX_ORDER_QTY;
+    }
+
     char prompt[96];
-    if (!pick_stock(&s)) return 0;
-    maxq = max_affordable(you, m, (int)s);
-    if (maxq <= 0) { printf("You can't afford any %s right now.\n", m->stocks[s].symbol); return 1; }
-    if (maxq > MAX_ORDER_QTY) maxq = MAX_ORDER_QTY;
-    snprintf(prompt, sizeof prompt, "Quantity to buy (max you can afford: %ld): ", maxq);
-    if (!read_long(prompt, 1, MAX_ORDER_QTY, &qty)) return 0;
+    snprintf(prompt, sizeof prompt, "Quantity to buy (max you can afford: %ld): ", can_afford);
+
+    long qty;
+    if (!read_long(prompt, 1, MAX_ORDER_QTY, &qty)) {
+        return 0;
+    }
+
     switch (portfolio_buy(you, m, (int)s, qty)) {
-        case TRADE_OK: printf("Bought %ld %s.\n", qty, m->stocks[s].symbol); break;
-        case TRADE_NO_CASH: printf("Not enough cash for that order.\n"); break;
-        case TRADE_BAD_INPUT: printf("Invalid order.\n"); break;
-        default: printf("Trade failed.\n"); break;
+        case TRADE_OK:        printf("Bought %ld %s.\n", qty, symbol);         break;
+        case TRADE_NO_CASH:   printf("Not enough cash for that order.\n");    break;
+        case TRADE_BAD_INPUT: printf("Invalid order.\n");                     break;
+        default:              printf("Trade failed.\n");                      break;
     }
     return 1;
 }
 
 static int do_sell(Portfolio *you, const Market *m) {
-    long s, qty;
+    long s;
+    if (!pick_stock(&s)) {
+        return 0;
+    }
+    const char *symbol = m->stocks[s].symbol;
+
+    if (you->shares[s] <= 0) {
+        printf("You don't own any %s.\n", symbol);
+        return 1;
+    }
+
     char prompt[96];
-    if (!pick_stock(&s)) return 0;
-    if (you->shares[s] <= 0) { printf("You don't own any %s.\n", m->stocks[s].symbol); return 1; }
     snprintf(prompt, sizeof prompt, "Quantity to sell (you own %ld): ", you->shares[s]);
-    if (!read_long(prompt, 1, MAX_ORDER_QTY, &qty)) return 0;
+
+    long qty;
+    if (!read_long(prompt, 1, MAX_ORDER_QTY, &qty)) {
+        return 0;
+    }
+
     switch (portfolio_sell(you, m, (int)s, qty)) {
-        case TRADE_OK: printf("Sold %ld %s.\n", qty, m->stocks[s].symbol); break;
-        case TRADE_NO_SHARES: printf("You don't own that many shares.\n"); break;
-        case TRADE_BAD_INPUT: printf("Invalid order.\n"); break;
-        default: printf("Trade failed.\n"); break;
+        case TRADE_OK:        printf("Sold %ld %s.\n", qty, symbol);           break;
+        case TRADE_NO_SHARES: printf("You don't own that many shares.\n");    break;
+        case TRADE_BAD_INPUT: printf("Invalid order.\n");                     break;
+        default:              printf("Trade failed.\n");                      break;
     }
     return 1;
 }
 
-static void bots_turn(Bot bots[NUM_BOTS], const Market *m) {
-    int i, s;
-    printf("\n-- Bots (day %d) --\n", m->day);
-    for (i = 0; i < NUM_BOTS; i++) {
-        long before[NUM_STOCKS];
-        char line[256];
-        size_t len;
-        int any = 0;
-        for (s = 0; s < NUM_STOCKS; s++) before[s] = bots[i].p.shares[s];
-        bot_act(&bots[i], m);
-        len = (size_t)snprintf(line, sizeof line, "%s:", bots[i].p.name);
-        for (s = 0; s < NUM_STOCKS && len < sizeof line; s++) {
-            long d = bots[i].p.shares[s] - before[s];
-            if (d == 0) continue;
-            len += (size_t)snprintf(line + len, sizeof line - len, "%s %s %ld %s",
-                                    any ? "," : "", d > 0 ? "bought" : "sold",
-                                    d > 0 ? d : -d, m->stocks[s].symbol);
-            any = 1;
+/* ---------- Bots ---------- */
+
+/* Print what each bot did today, e.g. "Trend Tom: bought 14 BSR, sold 3 GRF". */
+static void print_bot_trades(const Game *g) {
+    printf("\n-- Bots (day %d) --\n", g->market.day);
+
+    for (int i = 0; i < NUM_BOTS; i++) {
+        printf("%s:", g->bots[i].p.name);
+
+        int traded = 0;
+        for (int s = 0; s < NUM_STOCKS; s++) {
+            long change = g->bot_trades[i][s];
+            if (change == 0) {
+                continue;
+            }
+            const char *separator = traded ? "," : "";
+            const char *symbol = g->market.stocks[s].symbol;
+            if (change > 0) {
+                printf("%s bought %ld %s", separator, change, symbol);
+            } else {
+                printf("%s sold %ld %s", separator, -change, symbol);
+            }
+            traded = 1;
         }
-        if (any) printf("%s\n", line);
-        else printf("%s no trades\n", line);
+
+        if (!traded) {
+            printf(" no trades");
+        }
+        printf("\n");
+    }
+}
+
+/* ---------- Game ---------- */
+
+/* Use the seed typed after ./arena if there is one, otherwise the current time. */
+static unsigned long choose_seed(int argc, char **argv) {
+    long seed;
+    if (argc > 1 && parse_long_in_range(argv[1], 0, MAX_SEED, &seed)) {
+        return (unsigned long)seed;
+    }
+    return (unsigned long)time(NULL);
+}
+
+static void next_day(Game *g) {
+    game_next_day(g);
+    show_day(&g->market, &g->you);
+    print_bot_trades(g);
+}
+
+static void show_final_standings(const Game *g) {
+    const Market *m = &g->market;
+    printf("\n=== Final standings (day %d/%d) ===\n", m->day, NUM_DAYS);
+
+    /* Put you and all bots in one list for the leaderboard. You are first. */
+    const Portfolio *players[NUM_BOTS + 1];
+    players[0] = &g->you;
+    for (int i = 0; i < NUM_BOTS; i++) {
+        players[i + 1] = &g->bots[i].p;
+    }
+    print_leaderboard(players, NUM_BOTS + 1, m);
+
+    if (portfolio_value(&g->you, m) < START_CASH) {
+        printf("Markets are risky - that's the point.\n");
+    } else {
+        printf("Did skill or luck win this one? Try another seed.\n");
     }
 }
 
 int main(int argc, char **argv) {
-    Market m;
-    Portfolio you;
-    Bot bots[NUM_BOTS];
-    const Portfolio *all[NUM_BOTS + 1];
-    long seed_val = 0, choice;
-    unsigned long seed;
-    int i, running = 1;
+    static Game game;   /* static: keeps this big struct off the stack */
+    game_new(&game, choose_seed(argc, argv));
+    printf("Stock Trading Arena\nSeed: %lu\n", game.seed);
 
-    if (argc > 1 && parse_long_in_range(argv[1], 0, 2147483647L, &seed_val)) seed = (unsigned long)seed_val;
-    else seed = (unsigned long)time(NULL);
-    rng_seed(seed);
-    printf("Stock Trading Arena\nSeed: %lu\n", seed);
+    Market *m = &game.market;
+    Portfolio *you = &game.you;
 
-    market_init(&m);
-    portfolio_init(&you, "You", START_CASH);
-    bots_init_all(bots);
-    show_day(&m, &you);
+    show_day(m, you);
 
+    int running = 1;
     while (running) {
         print_menu();
-        if (!read_long("Choice: ", 0, 6, &choice)) break;
+
+        long choice;
+        if (!read_long("Choice: ", MENU_QUIT, MENU_NEXT_DAY, &choice)) {
+            break;   /* input ended */
+        }
+
         switch (choice) {
-            case 0: running = 0; break;
-            case 1: show_day(&m, &you); break;
-            case 2: { long s = 0; if (!pick_stock(&s)) running = 0; else print_chart(&m.stocks[s]); break; }
-            case 3: if (!do_buy(&you, &m)) running = 0; break;
-            case 4: if (!do_sell(&you, &m)) running = 0; break;
-            case 5: print_portfolio(&you, &m); break;
-            case 6:
-                if (m.day >= NUM_DAYS) { running = 0; break; }
-                market_step(&m);
-                show_day(&m, &you);
-                bots_turn(bots, &m);
-                if (m.day >= NUM_DAYS) running = 0;
+            case MENU_QUIT:
+                running = 0;
+                break;
+            case MENU_MARKET:
+                show_day(m, you);
+                break;
+            case MENU_CHART:
+                running = do_chart(m);
+                break;
+            case MENU_BUY:
+                running = do_buy(you, m);
+                break;
+            case MENU_SELL:
+                running = do_sell(you, m);
+                break;
+            case MENU_PORTFOLIO:
+                print_portfolio(you, m);
+                break;
+            case MENU_NEXT_DAY:
+                next_day(&game);
+                if (game_is_over(&game)) {
+                    running = 0;   /* last day reached: game over */
+                }
                 break;
         }
     }
 
-    printf("\n=== Final standings (day %d/%d) ===\n", m.day, NUM_DAYS);
-    all[0] = &you;
-    for (i = 0; i < NUM_BOTS; i++) all[i + 1] = &bots[i].p;
-    print_leaderboard(all, NUM_BOTS + 1, &m);
-    if (portfolio_value(&you, &m) < START_CASH) printf("Markets are risky - that's the point.\n");
-    else printf("Did skill or luck win this one? Try another seed.\n");
+    show_final_standings(&game);
     return 0;
 }
