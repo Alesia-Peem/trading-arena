@@ -102,6 +102,9 @@ function render() {
   renderAccount();
   renderBoard(byId("leaderboard"));
   renderBots();
+  renderTrades();
+  renderRace();
+  renderAllTime();
   updateButtons();
   maybeShowGameOver();
 }
@@ -255,6 +258,17 @@ function renderChart() {
   }
   svg.append(svgEl("circle", { class: "end-dot", cx: last[0], cy: last[1], r: 4 }));
 
+  /* B / S marks where you bought or sold this stock. */
+  for (const t of state.trades) {
+    if (t.stock !== selected) continue;
+    const mark = svgEl("g", { class: "trade-mark " + (t.qty > 0 ? "is-buy" : "is-sell") });
+    mark.append(svgEl("circle", { cx: x(t.day), cy: y(t.price), r: 8 }));
+    const letter = svgEl("text", { x: x(t.day), y: y(t.price) + 4, "text-anchor": "middle" });
+    letter.textContent = t.qty > 0 ? "B" : "S";
+    mark.append(letter);
+    svg.append(mark);
+  }
+
   /* Hover: crosshair + dot + tooltip at the nearest day */
   const crosshair = svgEl("line", { class: "crosshair", y1: margin.top, y2: bottom, visibility: "hidden" });
   const hoverDot = svgEl("circle", { class: "hover-dot", r: 5, visibility: "hidden" });
@@ -391,10 +405,16 @@ function renderAccount() {
   state.stocks.forEach((stock, i) => {
     const shares = you.shares[i];
     if (shares > 0) {
+      const pl = you.profitLoss[i];
+      const plBp = changeBp(you.costBasis[i], you.costBasis[i] + pl);
       items.push(el("li", {},
         el("span", { class: "symbol", text: stock.symbol }),
-        el("span", { class: "count", text: COUNT.format(shares) + " shares" }),
-        el("span", { class: "value", text: money(shares * stock.price) })));
+        el("span", { class: "count" },
+          COUNT.format(shares) + " shares",
+          el("span", { class: "avg", text: "paid " + money(you.avgCost[i]) + " each" })),
+        el("span", { class: "value" },
+          money(shares * stock.price),
+          el("span", { class: "change " + direction(pl), text: (pl > 0 ? "+" : pl < 0 ? "-" : "") + money(Math.abs(pl)) + " (" + percent(plBp) + ")" }))));
     }
   });
   if (items.length === 0) {
@@ -432,6 +452,112 @@ function renderBots() {
         el("p", { class: "bot-trades", text: state.day === 0 ? "Waiting for day 1" : describeTrades(bot.lastTrades) }))));
 }
 
+/* ---------- Your trades ---------- */
+
+function renderTrades() {
+  const list = byId("trades");
+  if (state.trades.length === 0) {
+    list.replaceChildren(el("li", { class: "empty", text: "No trades yet. Your buys and sells show up here and on the chart." }));
+    return;
+  }
+  /* Newest first */
+  list.replaceChildren(...state.trades.slice().reverse().map((t) =>
+    el("li", {},
+      el("span", { class: "trade-day", text: "Day " + t.day }),
+      el("span", { class: "trade-what" },
+        el("b", { class: t.qty > 0 ? "is-buy" : "is-sell", text: t.qty > 0 ? "Bought" : "Sold" }),
+        " " + COUNT.format(Math.abs(t.qty)) + " " + state.stocks[t.stock].symbol + " at " + money(t.price)),
+      el("span", { class: "trade-fee", text: "fee " + money(t.fee) }))));
+}
+
+/* ---------- The race chart ---------- */
+
+function renderRace() {
+  const wrap = byId("race-wrap");
+  const width = Math.max(wrap.clientWidth, 280);
+  const height = 240;
+  /* Phones: thinner margins for the name labels, and day labels every 10 days. */
+  const narrow = width < 480;
+  const margin = narrow ? { top: 12, right: 84, bottom: 28, left: 64 } : { top: 12, right: 112, bottom: 28, left: 72 };
+  const dayStep = narrow ? 10 : 5;
+  const plotW = width - margin.left - margin.right;
+  const plotH = height - margin.top - margin.bottom;
+
+  const all = state.race.flatMap((r) => r.worth);
+  const scale = niceScale(Math.min(...all), Math.max(...all), 4);
+  const x = (day) => margin.left + (day / state.numDays) * plotW;
+  const y = (v) => margin.top + ((scale.max - v) / (scale.max - scale.min)) * plotH;
+
+  const leader = state.leaderboard[0].name;
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    role: "img",
+    "aria-label": `Net worth of all players from day 0 to day ${state.day}. Leading: ${leader}.`,
+  });
+
+  for (const tick of scale.ticks) {
+    svg.append(svgEl("line", { class: "gridline", x1: margin.left, x2: width - margin.right, y1: y(tick), y2: y(tick) }));
+    const label = svgEl("text", { class: "axis-label", x: margin.left - 10, y: y(tick) + 4, "text-anchor": "end" });
+    label.textContent = money(tick);
+    svg.append(label);
+  }
+  for (let day = 0; day <= state.numDays; day += dayStep) {
+    const label = svgEl("text", { class: "axis-label", x: x(day), y: height - 6, "text-anchor": "middle" });
+    label.textContent = day === 0 ? "Day 0" : String(day);
+    svg.append(label);
+  }
+
+  /* Bots first, you last, so your line is drawn on top. */
+  const order = state.race.map((r, i) => i).sort((a, b) => Number(state.race[a].isYou) - Number(state.race[b].isYou));
+  const labels = [];
+  for (const i of order) {
+    const r = state.race[i];
+    const d = r.worth.map((v, day) => (day === 0 ? "M" : "L") + x(day).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
+    svg.append(svgEl("path", { class: "race-line " + (r.isYou ? "is-you" : "bot-" + i), d }));
+    const lastDay = r.worth.length - 1;
+    labels.push({ name: r.name, value: r.worth[lastDay], isYou: r.isYou, x: x(lastDay), y: y(r.worth[lastDay]) });
+  }
+
+  /* Name each line at its end, nudged apart so labels never overlap. */
+  labels.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < labels.length; i++) {
+    labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 15);
+  }
+  for (const l of labels) {
+    const text = svgEl("text", { class: "race-label" + (l.isYou ? " is-you" : ""), x: l.x + 8, y: l.y + 4 });
+    const maxChars = narrow ? 9 : 12;
+    text.textContent = l.name.length > maxChars ? l.name.slice(0, maxChars - 1) + "..." : l.name;
+    svg.append(text);
+  }
+
+  wrap.replaceChildren(svg);
+}
+
+/* ---------- All-time top 10 ---------- */
+
+function renderAllTime() {
+  const list = byId("alltime");
+  if (state.allTime.length === 0) {
+    list.replaceChildren(el("li", { class: "empty", text: "No finished games yet. Play all 30 days to get on the board." }));
+    return;
+  }
+  list.replaceChildren(...state.allTime.map((e, i) =>
+    el("li", { class: state.resultSaved && state.yourPlace === i + 1 ? "you" : "" },
+      el("span", { class: "board-rank", text: String(i + 1) }),
+      el("span", { class: "alltime-name", text: e.name }),
+      el("span", { class: "alltime-worth", text: money(e.netWorth) }),
+      el("span", { class: "alltime-meta", text: "seed " + e.seed + ", " + e.date }))));
+}
+
+/* ---------- Your name (remembered in this browser only) ---------- */
+
+function savedName() {
+  try { return localStorage.getItem("arena-name") || ""; } catch (e) { return ""; }
+}
+function rememberName(name) {
+  try { localStorage.setItem("arena-name", name); } catch (e) { /* private mode: fine */ }
+}
+
 /* ---------- Game over and new game ---------- */
 
 function maybeShowGameOver() {
@@ -447,6 +573,11 @@ function maybeShowGameOver() {
       : "Was it skill or luck? Try another seed.";
   renderBoard(byId("final-board"));
   renderLesson();
+  byId("saved-note").textContent = !state.resultSaved
+    ? ""
+    : state.yourPlace > 0
+      ? "Saved to scores.txt: you placed #" + state.yourPlace + " on the all-time top 10."
+      : "Saved to scores.txt, but not in the top 10 this time.";
   byId("game-over-dialog").showModal();
 }
 
@@ -477,7 +608,12 @@ function renderLesson() {
 
 async function startGame(seedText) {
   const seed = seedText.trim();
-  const query = /^\d+$/.test(seed) ? "?seed=" + seed : "";
+  const name = (byId("name-input").value || savedName()).trim();
+  rememberName(name);
+  const params = new URLSearchParams();
+  if (/^\d+$/.test(seed)) params.set("seed", seed);
+  if (name !== "") params.set("name", name);
+  const query = params.toString() === "" ? "" : "?" + params.toString();
   gameOverShownForSeed = null;
   selected = 0;
   byId("trade-message").textContent = "";
@@ -502,7 +638,11 @@ byId("max-btn").addEventListener("click", () => {
 });
 byId("qty").addEventListener("input", () => state && renderTradeHelper());
 
-byId("new-game-btn").addEventListener("click", () => byId("new-game-dialog").showModal());
+function openNewGame() {
+  if (byId("name-input").value === "") byId("name-input").value = savedName();
+  byId("new-game-dialog").showModal();
+}
+byId("new-game-btn").addEventListener("click", openNewGame);
 byId("new-game-form").addEventListener("submit", (event) => {
   if (event.submitter && event.submitter.value === "start") startGame(byId("seed-input").value);
 });
@@ -514,7 +654,7 @@ byId("replay-btn").addEventListener("click", () => {
 });
 byId("over-new-btn").addEventListener("click", () => {
   byId("game-over-dialog").close();
-  byId("new-game-dialog").showModal();
+  openNewGame();
 });
 
 byId("retry-btn").addEventListener("click", () => callServer("/api/state", "GET"));
@@ -533,7 +673,7 @@ document.addEventListener("keydown", (event) => {
 let resizeTimer = null;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => state && renderChart(), 100);
+  resizeTimer = setTimeout(() => state && (renderChart(), renderRace()), 100);
 });
 
 callServer("/api/state", "GET");

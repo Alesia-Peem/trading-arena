@@ -12,6 +12,15 @@ A CPE101 project in C. You trade five made-up stocks for 30 days against three c
 
 At the end, the game ranks you against the bots, then shows what you would have had if you had kept your cash, followed the market index, or bought the best stock on day 0 and held it. Your result goes into an all-time top 10, saved in `scores.txt`.
 
+## The website
+
+The browser version shows everything above, plus:
+
+- **The race:** a chart of everyone's net worth, day by day
+- **Your trades:** every buy and sell with its price and fee, and B / S marks on the price chart
+- **Profit/loss per holding:** the average price you paid and how much you're up or down
+- **Your name and the all-time top 10:** finished games are saved to `scores.txt` by the C server
+
 ## Build and play
 
 You need `gcc` and `make`. The game uses only the C standard library.

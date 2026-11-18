@@ -82,6 +82,14 @@
           <div class="table-scroll"><table id="price-table"></table></div>
         </details>
       </section>
+
+      <section class="panel race-card" aria-labelledby="race-title">
+        <div class="panel-head">
+          <h2 id="race-title">The race</h2>
+          <p class="note">Everyone's net worth, day by day.</p>
+        </div>
+        <div class="race-wrap" id="race-wrap"><div class="skeleton-chart"></div></div>
+      </section>
     </div>
 
     <aside class="col-side">
@@ -118,9 +126,20 @@
         <ul class="holdings" id="holdings"></ul>
       </section>
 
+      <section class="plain trades-panel" aria-labelledby="trades-title">
+        <h2 id="trades-title">Your trades</h2>
+        <ol class="trades" id="trades"></ol>
+      </section>
+
       <section class="plain bots-panel" aria-labelledby="bots-title">
         <h2 id="bots-title">Bots today</h2>
         <ul class="bots" id="bots"></ul>
+      </section>
+
+      <section class="plain alltime-panel" aria-labelledby="alltime-title">
+        <h2 id="alltime-title">All-time top 10</h2>
+        <p class="note">Finished games, saved in scores.txt by the C server.</p>
+        <ol class="alltime" id="alltime"></ol>
       </section>
     </aside>
   </main>
@@ -129,6 +148,11 @@
   <dialog id="new-game-dialog">
     <form method="dialog" id="new-game-form" class="dialog-body">
       <h2>New game</h2>
+      <div class="field">
+        <label for="name-input">Your name</label>
+        <input id="name-input" type="text" maxlength="23" autocomplete="nickname" placeholder="Player">
+        <p class="helper">Shown in the race and saved to the all-time top 10 when you finish.</p>
+      </div>
       <div class="field">
         <label for="seed-input">Seed (optional)</label>
         <input id="seed-input" type="number" inputmode="numeric" min="0" step="1" placeholder="Random">
@@ -146,6 +170,7 @@
     <div class="dialog-body">
       <h2 id="game-over-title">Final standings</h2>
       <p class="note" id="game-over-note"></p>
+      <p class="saved-note" id="saved-note"></p>
       <ol class="board" id="final-board"></ol>
       <div class="lesson">
         <h3>If you had...</h3>
