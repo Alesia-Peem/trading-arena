@@ -137,3 +137,28 @@ int read_name(const char *prompt, char *out, size_t size) {
     clean_name(line, out, size);
     return 1;
 }
+
+/* Value of one hex digit, or -1 if it isn't one. */
+static int hex_value(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+void url_decode(const char *in, char *out, size_t size) {
+    size_t len = 0;
+    while (*in != '\0' && len + 1 < size) {
+        if (*in == '+') {
+            out[len++] = ' ';
+            in++;
+        } else if (*in == '%' && hex_value(in[1]) >= 0 && hex_value(in[2]) >= 0) {
+            out[len++] = (char)(hex_value(in[1]) * 16 + hex_value(in[2]));
+            in += 3;
+        } else {
+            out[len++] = *in;
+            in++;
+        }
+    }
+    out[len] = '\0';
+}

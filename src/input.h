@@ -34,4 +34,12 @@ void clean_name(const char *raw, char *out, size_t size);
  */
 int read_name(const char *prompt, char *out, size_t size);
 
+/*
+ * Decode text from a web address: "+" becomes a space and "%2C" becomes ","
+ * (two hex digits = one byte, so Thai letters arrive as %E0%B8%AA ...).
+ * A "%" that isn't followed by two hex digits is kept as it is.
+ * The result is cut to fit `out` (size - 1 bytes).
+ */
+void url_decode(const char *in, char *out, size_t size);
+
 #endif

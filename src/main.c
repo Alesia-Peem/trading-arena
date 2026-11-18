@@ -230,11 +230,7 @@ static void save_result(const Game *g, ScoreEntry board[], int *n) {
     }
 
     ScoreEntry e;
-    snprintf(e.name, sizeof e.name, "%s", g->you.name);
-    e.net_worth = portfolio_value(&g->you, &g->market);
-    e.seed = g->seed;
-    time_t now = time(NULL);
-    strftime(e.date, sizeof e.date, "%Y-%m-%d", localtime(&now));
+    scores_make_entry(&e, g->you.name, portfolio_value(&g->you, &g->market), g->seed);
 
     int place = scores_add(board, n, MAX_SCORES, &e);
     if (!scores_save(SCORES_FILE, board, *n)) {

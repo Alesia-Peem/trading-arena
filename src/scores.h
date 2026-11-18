@@ -19,6 +19,9 @@ typedef struct {
     char date[11];          /* "YYYY-MM-DD" */
 } ScoreEntry;
 
+/* Fill *e with a name, net worth and seed, dated today. Long names are cut to fit. */
+void scores_make_entry(ScoreEntry *e, const char *name, long net_worth, unsigned long seed);
+
 /* Read one line of scores.txt into *out. Returns 1 if the line is valid, 0 if not. */
 int scores_parse_line(const char *line, ScoreEntry *out);
 

@@ -1,10 +1,20 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "scores.h"
 #include "display.h"
 
 #define FILE_LINE_BUF 128   /* longest line we read from scores.txt */
+
+void scores_make_entry(ScoreEntry *e, const char *name, long net_worth, unsigned long seed) {
+    snprintf(e->name, sizeof e->name, "%s", name);
+    e->net_worth = net_worth;
+    e->seed = seed;
+
+    time_t now = time(NULL);
+    strftime(e->date, sizeof e->date, "%Y-%m-%d", localtime(&now));
+}
 
 int scores_parse_line(const char *line, ScoreEntry *out) {
     ScoreEntry e;

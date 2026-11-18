@@ -48,12 +48,25 @@ static void test_clean_name_keeps_utf8_whole(void) {
     assert(strcmp(b, "\xE0\xB8\xAA\xE0\xB8\xA1\xE0\xB8\x8A\xE0\xB8\xB2\xE0\xB8\xA2 \xE0\xB9\x83\xE0\xB8\x88") == 0);
 }
 
+/* Names arrive from the browser URL-encoded: spaces as + or %20, Thai as %E0%B8%AA ... */
+static void test_url_decode(void) {
+    char b[24];
+    url_decode("Mew+TA", b, sizeof b);                 assert(strcmp(b, "Mew TA") == 0);
+    url_decode("Mew%2C%20TA", b, sizeof b);            assert(strcmp(b, "Mew, TA") == 0);
+    url_decode("%E0%B8%AA", b, sizeof b);              assert(strcmp(b, "\xE0\xB8\xAA") == 0);
+    url_decode("100%", b, sizeof b);                   assert(strcmp(b, "100%") == 0);   /* lone % kept */
+    url_decode("%zz", b, sizeof b);                    assert(strcmp(b, "%zz") == 0);    /* not hex: kept */
+    url_decode("ABCDEFGHIJKLMNOPQRSTUVWXYZ", b, sizeof b);
+    assert(strlen(b) == 23);                                                        /* cut to fit */
+}
+
 int main(void) {
     test_parse_ok();
     test_parse_rejects_garbage();
     test_parse_rejects_out_of_range();
     test_clean_name();
     test_clean_name_keeps_utf8_whole();
+    test_url_decode();
 
     printf("test_input: ALL PASSED\n");
     return 0;

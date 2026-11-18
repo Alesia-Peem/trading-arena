@@ -161,6 +161,18 @@ static void test_save_bad_path(void) {
     assert(scores_save("tests/no_such_dir/x.txt", list, 1) == 0);
 }
 
+static void test_make_entry(void) {
+    ScoreEntry e;
+    scores_make_entry(&e, "Peem", 1254300, 42);
+    assert(strcmp(e.name, "Peem") == 0);
+    assert(e.net_worth == 1254300);
+    assert(e.seed == 42);
+    assert(strlen(e.date) == 10 && e.date[4] == '-' && e.date[7] == '-');   /* YYYY-MM-DD */
+
+    scores_make_entry(&e, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", 1, 1);
+    assert(strlen(e.name) == 23);
+}
+
 int main(void) {
     test_parse_good_line();
     test_parse_bad_lines();
@@ -171,6 +183,7 @@ int main(void) {
     test_load_missing_file();
     test_load_skips_bad_and_caps_at_max();
     test_save_bad_path();
+    test_make_entry();
     test_load_skips_overlong_line_tail();
     test_load_sorts_hand_edited_file();
 
