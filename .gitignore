@@ -5,3 +5,5 @@ arena-server
 .DS_Store
 .vscode/
 tests/build/
+scores.txt
+tests/tmp_scores.txt

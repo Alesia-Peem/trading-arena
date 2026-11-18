@@ -13,6 +13,7 @@
 #include "game.h"
 #include "display.h"
 #include "input.h"
+#include "scores.h"
 
 #define MAX_SEED 2147483647L
 
@@ -201,10 +202,49 @@ static void show_final_standings(const Game *g) {
     }
 }
 
+/* ---------- Leaderboard file ---------- */
+
+/* After a finished game: add your result to the all-time board and save it. */
+static void save_result(const Game *g, ScoreEntry board[], int *n) {
+    if (!game_is_over(g)) {
+        printf("\nYou quit early, so this game isn't saved to the leaderboard.\n");
+        return;
+    }
+
+    ScoreEntry e;
+    snprintf(e.name, sizeof e.name, "%s", g->you.name);
+    e.net_worth = portfolio_value(&g->you, &g->market);
+    e.seed = g->seed;
+    time_t now = time(NULL);
+    strftime(e.date, sizeof e.date, "%Y-%m-%d", localtime(&now));
+
+    int place = scores_add(board, n, MAX_SCORES, &e);
+    if (!scores_save(SCORES_FILE, board, *n)) {
+        printf("Warning: could not save %s\n", SCORES_FILE);
+    }
+
+    if (place > 0) {
+        printf("\nYou placed #%d on the all-time top %d!\n", place, MAX_SCORES);
+    } else {
+        printf("\nNot in the top %d this time.\n", MAX_SCORES);
+    }
+    scores_print(board, *n);
+}
+
 int main(int argc, char **argv) {
     static Game game;   /* static: keeps this big struct off the stack */
     game_new(&game, choose_seed(argc, argv));
     printf("Stock Trading Arena\nSeed: %lu\n", game.seed);
+
+    char name[sizeof game.you.name] = "Player";
+    if (!read_name("Your name: ", name, sizeof name)) {
+        snprintf(name, sizeof name, "Player");   /* input ended: keep the default */
+    }
+    snprintf(game.you.name, sizeof game.you.name, "%s", name);
+
+    static ScoreEntry board[MAX_SCORES];
+    int board_count = scores_load(SCORES_FILE, board, MAX_SCORES);
+    scores_print(board, board_count);
 
     Market *m = &game.market;
     Portfolio *you = &game.you;
@@ -249,5 +289,6 @@ int main(int argc, char **argv) {
     }
 
     show_final_standings(&game);
+    save_result(&game, board, &board_count);
     return 0;
 }
