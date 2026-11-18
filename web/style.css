@@ -108,7 +108,9 @@ h3 { font-size: 13px; font-weight: 600; color: var(--text-2); margin-top: 20px; 
 .brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
 .seed { font-size: 13px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
-.progress-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.progress-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; gap: 12px; }
+.index-text { font-weight: 500; color: var(--text-2); white-space: nowrap; }
+.index-text .change { font-size: 13px; }
 
 /* The day meter: 30 small segments, one per trading day. The mask cuts the
    bar into segments, so the track and the fill both look segmented. */
@@ -201,6 +203,8 @@ input::placeholder { color: var(--text-3); }
 .banner[hidden] { display: none; }
 .banner-error { background: var(--down-soft); color: var(--text); justify-content: space-between; }
 .banner-news { background: var(--news-soft); border-left: 3px solid var(--news-edge); }
+.banner-news.is-crash { background: var(--down-soft); border-left-color: var(--down); }
+.banner-news.is-rally { border-left-color: var(--up); }
 .banner-news strong {
   font-size: 12px;
   font-weight: 700;
@@ -356,6 +360,8 @@ code { font-family: var(--mono); font-size: 13px; }
 .gridline { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
 .price-area { fill: var(--accent); opacity: 0.1; }
 .price-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.market-line { fill: none; stroke: var(--text-3); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.tooltip .tip-market { display: block; margin-top: 2px; }
 .end-dot, .hover-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
 .crosshair { stroke: var(--text-3); stroke-width: 1; shape-rendering: crispEdges; }
 
@@ -391,15 +397,17 @@ code { font-family: var(--mono); font-size: 13px; }
 .trade-form { display: grid; gap: 14px; }
 .qty-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .order-total {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+  display: grid;
+  gap: 4px;
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-2);
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-2);
 }
+.order-total p { display: flex; justify-content: space-between; align-items: baseline; }
+.order-total .num { font-family: var(--mono); }
+.order-total .order-sum { padding-top: 4px; border-top: 1px solid var(--border); font-size: 14px; }
 .order-total b { color: var(--text); font-family: var(--mono); font-weight: 600; font-size: 16px; }
 .trade-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .trade-buttons .btn { height: 44px; font-size: 15px; }
@@ -410,7 +418,7 @@ code { font-family: var(--mono); font-size: 13px; }
 
 /* ---------- Account ---------- */
 
-.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0 0; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; }
 .facts dt { font-size: 13px; color: var(--text-3); }
 .facts dd { margin: 0; font: 600 15px var(--mono); }
 
@@ -441,6 +449,17 @@ code { font-family: var(--mono); font-size: 13px; }
 #final-board li.you { background: var(--accent-soft); font-weight: 600; }
 #final-board .board-worth { font-family: var(--mono); }
 #final-board .board-pct { text-align: right; font-size: 13px; font-weight: 600; }
+
+/* ---------- Lesson (game over) ---------- */
+
+.lesson h3 { margin: 4px 0 8px; }
+.lesson-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.lesson-table th { text-align: left; font-weight: 500; padding: 6px 0; }
+.lesson-table td { text-align: right; padding: 6px 0 6px 12px; white-space: nowrap; }
+.lesson-table td.num { font-family: var(--mono); }
+.lesson-table tr:first-child th, .lesson-table tr:first-child td { font-weight: 700; }
+.lesson-table .change { font-size: 13px; }
+.lesson-verdict { margin-top: 10px; font-size: 14px; color: var(--text-2); }
 
 /* ---------- Bots ---------- */
 

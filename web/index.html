@@ -17,7 +17,7 @@
       </div>
 
       <div class="progress" aria-live="polite">
-        <p class="progress-label" id="day-text">Day 0 of 30</p>
+        <p class="progress-label"><span id="day-text">Day 0 of 30</span> <span class="index-text" id="index-text"></span></p>
         <!-- 30 segments, one per trading day (drawn by CSS) -->
         <div class="meter" aria-hidden="true"><div class="meter-fill" id="day-meter"></div></div>
       </div>
@@ -96,7 +96,7 @@
             </div>
             <p class="helper" id="qty-helper">&nbsp;</p>
           </div>
-          <p class="order-total" id="order-total">&nbsp;</p>
+          <div class="order-total" id="order-total">&nbsp;</div>
           <div class="trade-buttons">
             <button class="btn btn-primary" id="buy-btn" type="submit" value="buy">Buy</button>
             <button class="btn btn-outline" id="sell-btn" type="button">Sell</button>
@@ -112,6 +112,7 @@
         <dl class="facts">
           <div><dt>Cash</dt><dd id="cash">&nbsp;</dd></div>
           <div><dt>In stocks</dt><dd id="invested">&nbsp;</dd></div>
+          <div><dt>Fees paid</dt><dd id="fees-paid">&nbsp;</dd></div>
         </dl>
         <h3>Holdings</h3>
         <ul class="holdings" id="holdings"></ul>
@@ -146,6 +147,11 @@
       <h2 id="game-over-title">Final standings</h2>
       <p class="note" id="game-over-note"></p>
       <ol class="board" id="final-board"></ol>
+      <div class="lesson">
+        <h3>If you had...</h3>
+        <table class="lesson-table" id="lesson-table"></table>
+        <p class="lesson-verdict" id="lesson-verdict"></p>
+      </div>
       <div class="dialog-buttons">
         <button class="btn btn-ghost" id="close-over-btn" type="button">Close</button>
         <button class="btn btn-ghost" id="replay-btn" type="button">Replay this seed</button>

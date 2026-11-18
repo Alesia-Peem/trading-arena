@@ -113,8 +113,17 @@ static void add_shares_array(Text *t, const long shares[NUM_STOCKS]) {
 static void add_portfolio(Text *t, const Portfolio *p, const Market *m) {
     text_add(t, "\"name\":");
     text_add_json_string(t, p->name);
-    text_add(t, ",\"cash\":%ld,\"netWorth\":%ld,\"shares\":", p->cash, portfolio_value(p, m));
+    text_add(t, ",\"cash\":%ld,\"netWorth\":%ld,\"feesPaid\":%ld,\"shares\":",
+             p->cash, portfolio_value(p, m), p->fees_paid);
     add_shares_array(t, p->shares);
+
+    /* How many shares of each stock this player can buy right now, fee included.
+       Sent from C so the page's Max button uses exactly the game's rule. */
+    text_add(t, ",\"maxAffordable\":[");
+    for (int s = 0; s < NUM_STOCKS; s++) {
+        text_add(t, "%s%ld", s > 0 ? "," : "", max_affordable(p, m, s));
+    }
+    text_add(t, "]");
 }
 
 static void add_stocks(Text *t, const Market *m) {
@@ -125,7 +134,8 @@ static void add_stocks(Text *t, const Market *m) {
         text_add_json_string(t, s->symbol);
         text_add(t, ",\"name\":");
         text_add_json_string(t, s->name);
-        text_add(t, ",\"price\":%ld,\"volatilityBp\":%d,\"history\":[", s->price, s->volatility_bp);
+        text_add(t, ",\"price\":%ld,\"volatilityBp\":%d,\"betaPct\":%d,\"history\":[",
+                 s->price, s->volatility_bp, s->beta_pct);
         for (int d = 0; d < s->history_len; d++) {
             text_add(t, "%s%ld", d > 0 ? "," : "", s->history[d]);
         }
@@ -155,11 +165,35 @@ static void add_leaderboard(Text *t, const Game *g) {
     text_add(t, "]");
 }
 
+/* The market index and today's mood. */
+static void add_market(Text *t, const Market *m) {
+    text_add(t, "\"index\":%ld,\"indexStart\":%ld,\"marketEvent\":%d,\"indexHistory\":[",
+             m->index, INDEX_START, m->market_event);
+    for (int d = 0; d < m->index_history_len; d++) {
+        text_add(t, "%s%ld", d > 0 ? "," : "", m->index_history[d]);
+    }
+    text_add(t, "]");
+}
+
+/* The end-of-game lesson, worked out by the same C code as the terminal version. */
+static void add_lesson(Text *t, const Game *g) {
+    const Market *m = &g->market;
+    int best = best_stock(m);
+    text_add(t, "\"lesson\":{\"bestStock\":%d,\"worstStock\":%d,\"holdBestValue\":%ld,"
+                "\"followIndexValue\":%ld}",
+             best, worst_stock(m), hold_value(&m->stocks[best], START_CASH),
+             (long)((long long)START_CASH * m->index / INDEX_START));
+}
+
 static void add_state(Text *t, const Game *g) {
     const Market *m = &g->market;
 
-    text_add(t, "{\"seed\":%lu,\"day\":%d,\"numDays\":%d,\"gameOver\":%s,\"startCash\":%ld,",
-             g->seed, m->day, NUM_DAYS, game_is_over(g) ? "true" : "false", START_CASH);
+    text_add(t, "{\"seed\":%lu,\"day\":%d,\"numDays\":%d,\"gameOver\":%s,\"startCash\":%ld,\"feeBp\":%d,",
+             g->seed, m->day, NUM_DAYS, game_is_over(g) ? "true" : "false", START_CASH, FEE_BP);
+    add_market(t, m);
+    text_add(t, ",");
+    add_lesson(t, g);
+    text_add(t, ",");
     text_add(t, "\"news\":");
     text_add_json_string(t, m->news);
     text_add(t, ",");
@@ -344,16 +378,22 @@ static void api_trade(int client, const char *query, int is_buy) {
     }
 
     const char *symbol = game.market.stocks[stock].symbol;
+    long fees_before = game.you.fees_paid;
     int result = is_buy ? portfolio_buy(&game.you, &game.market, (int)stock, qty)
                         : portfolio_sell(&game.you, &game.market, (int)stock, qty);
 
     char message[96];
     switch (result) {
         case TRADE_OK:
-            snprintf(message, sizeof message, "%s %ld %s.", is_buy ? "Bought" : "Sold", qty, symbol);
+        {
+            char fee[32];
+            format_money(game.you.fees_paid - fees_before, fee, sizeof fee);
+            snprintf(message, sizeof message, "%s %ld %s (fee %s).",
+                     is_buy ? "Bought" : "Sold", qty, symbol, fee);
+        }
             break;
         case TRADE_NO_CASH:
-            snprintf(message, sizeof message, "Not enough cash for %ld %s.", qty, symbol);
+            snprintf(message, sizeof message, "Not enough cash for %ld %s and the fee.", qty, symbol);
             break;
         case TRADE_NO_SHARES:
             snprintf(message, sizeof message, "You only own %ld %s.", game.you.shares[stock], symbol);

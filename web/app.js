@@ -112,10 +112,15 @@ function renderTopbar() {
     ? "Day " + state.day + " of " + state.numDays + ", game over"
     : "Day " + state.day + " of " + state.numDays;
   byId("day-meter").style.width = (100 * state.day) / state.numDays + "%";
+  byId("index-text").replaceChildren(
+    "Market " + money(state.index) + " ", changeText(changeBp(state.indexStart, state.index)));
 }
 
 function renderNews() {
-  byId("news").hidden = state.news === "";
+  const news = byId("news");
+  news.hidden = state.news === "";
+  news.classList.toggle("is-crash", state.marketEvent < 0);
+  news.classList.toggle("is-rally", state.marketEvent > 0);
   byId("news-text").textContent = state.news;
 }
 
@@ -193,7 +198,8 @@ function renderChart() {
   byId("chart-title").replaceChildren(
     el("span", { class: "symbol", text: stock.symbol }), " ", stock.name);
   byId("chart-subtitle").textContent =
-    "Price per share. Moves up to " + stock.volatilityBp / 100 + "% a day, plus news.";
+    "Moves up to " + stock.volatilityBp / 100 + "% a day on its own, plus " + stock.betaPct / 100 +
+    "x the market. Dashed line: the whole market, for comparison.";
   byId("chart-price").textContent = money(stock.price);
   byId("chart-change").replaceChildren(changeText(changeBp(start, stock.price), " since day 0"));
 
@@ -204,7 +210,10 @@ function renderChart() {
   const plotW = width - margin.left - margin.right;
   const plotH = height - margin.top - margin.bottom;
 
-  const scale = niceScale(Math.min(...history), Math.max(...history), 4);
+  /* The market index, scaled to start at this stock's day-0 price, so you can
+     see whether the stock did better or worse than the whole market. */
+  const marketLine = state.indexHistory.map((v) => (start * v) / state.indexStart);
+  const scale = niceScale(Math.min(...history, ...marketLine), Math.max(...history, ...marketLine), 4);
   const x = (day) => margin.left + (day / state.numDays) * plotW;
   const y = (price) => margin.top + ((scale.max - price) / (scale.max - scale.min)) * plotH;
 
@@ -234,6 +243,11 @@ function renderChart() {
   const linePath = points.map(([px, py], i) => (i === 0 ? "M" : "L") + px.toFixed(1) + " " + py.toFixed(1)).join(" ");
   const last = points[points.length - 1];
   const bottom = margin.top + plotH;
+
+  if (marketLine.length > 1) {
+    const marketPath = marketLine.map((p, day) => (day === 0 ? "M" : "L") + x(day).toFixed(1) + " " + y(p).toFixed(1)).join(" ");
+    svg.append(svgEl("path", { class: "market-line", d: marketPath }));
+  }
 
   if (points.length > 1) {
     svg.append(svgEl("path", { class: "price-area", d: `${linePath} L${last[0].toFixed(1)} ${bottom} L${points[0][0].toFixed(1)} ${bottom} Z` }));
@@ -271,7 +285,8 @@ function renderChart() {
     tooltip.replaceChildren(
       el("span", { text: "Day " + day }),
       el("strong", { text: money(history[day]) }),
-      day > 0 ? changeText(dayChange, " that day") : el("span", { text: "Starting price" }));
+      day > 0 ? changeText(dayChange, " that day") : el("span", { text: "Starting price" }),
+      el("span", { class: "tip-market", text: "Market line " + money(Math.round(marketLine[day])) }));
     tooltip.hidden = false;
 
     /* Keep the tooltip inside the chart: flip it to the left near the right edge. */
@@ -316,10 +331,14 @@ function readQty() {
   return qty >= 1 && qty <= MAX_ORDER_QTY ? qty : null;
 }
 
+/* Worked out by the C server (portfolio.c), so the fee rule lives in one place. */
 function maxAffordable() {
-  const price = state.stocks[selected].price;
-  return Math.min(MAX_ORDER_QTY, Math.floor(state.you.cash / price));
+  return Math.min(MAX_ORDER_QTY, state.you.maxAffordable[selected]);
 }
+
+/* For showing an estimate only: the C server charges the real fee.
+   Same rule as trade_fee() in portfolio.c: feeBp of the value, rounded up. */
+const tradeFee = (value) => (value > 0 ? Math.ceil((value * state.feeBp) / 10000) : 0);
 
 function renderTradeHelper() {
   const stock = state.stocks[selected];
@@ -333,7 +352,12 @@ function renderTradeHelper() {
   if (qty === null) {
     total.textContent = "Enter a whole number of shares.";
   } else {
-    total.replaceChildren("Order value ", el("b", { text: money(qty * stock.price) }));
+    const value = qty * stock.price;
+    const fee = tradeFee(value);
+    total.replaceChildren(
+      el("p", {}, el("span", { text: "Shares" }), el("span", { class: "num", text: money(value) })),
+      el("p", {}, el("span", { text: "Fee " + state.feeBp / 100 + "%" }), el("span", { class: "num", text: money(fee) })),
+      el("p", { class: "order-sum" }, el("span", { text: "You pay on a buy" }), el("b", { text: money(value + fee) })));
   }
 }
 
@@ -361,6 +385,7 @@ function renderAccount() {
   byId("net-change").replaceChildren(changeText(changeBp(state.startCash, you.netWorth), " since the start"));
   byId("cash").textContent = money(you.cash);
   byId("invested").textContent = money(you.netWorth - you.cash);
+  byId("fees-paid").textContent = money(you.feesPaid);
 
   const items = [];
   state.stocks.forEach((stock, i) => {
@@ -421,7 +446,33 @@ function maybeShowGameOver() {
       ? "Markets are risky. That's the point."
       : "Was it skill or luck? Try another seed.";
   renderBoard(byId("final-board"));
+  renderLesson();
   byId("game-over-dialog").showModal();
+}
+
+/* The lesson numbers come from the C server (display.c), the same as the terminal. */
+function renderLesson() {
+  const lesson = state.lesson;
+  const best = state.stocks[lesson.bestStock];
+  const row = (label, value) =>
+    el("tr", {},
+      el("th", { scope: "row", text: label }),
+      el("td", { class: "num", text: money(value) }),
+      el("td", {}, changeText(changeBp(state.startCash, value))));
+
+  byId("lesson-table").replaceChildren(
+    row("Traded like you did", state.you.netWorth),
+    row("Kept all your cash", state.startCash),
+    row("Followed the market index", lesson.followIndexValue),
+    row("Bought " + best.symbol + " on day 0 and held", lesson.holdBestValue));
+
+  const gap = changeBp(state.startCash, state.you.netWorth) - changeBp(state.indexStart, state.index);
+  const points = MONEY.format(Math.abs(gap) / 100);
+  byId("lesson-verdict").textContent =
+    (gap >= 0
+      ? "You beat the market by " + points + " points."
+      : "The market beat you by " + points + " points. Most real traders don't beat it either.") +
+    " You paid " + money(state.you.feesPaid) + " in fees.";
 }
 
 async function startGame(seedText) {
