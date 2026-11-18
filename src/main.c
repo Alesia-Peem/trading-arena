@@ -76,7 +76,9 @@ static int do_chart(const Market *m) {
     return 1;
 }
 
-static int do_buy(Portfolio *you, const Market *m) {
+static int do_buy(Game *g) {
+    Portfolio *you = &g->you;
+    const Market *m = &g->market;
     long s;
     if (!pick_stock(&s)) {
         return 0;
@@ -102,7 +104,7 @@ static int do_buy(Portfolio *you, const Market *m) {
 
     long fees_before = you->fees_paid;
     char fee[32];
-    switch (portfolio_buy(you, m, (int)s, qty)) {
+    switch (game_buy(g, (int)s, qty)) {
         case TRADE_OK:
             format_money(you->fees_paid - fees_before, fee, sizeof fee);
             printf("Bought %ld %s (fee %s).\n", qty, symbol, fee);
@@ -114,7 +116,9 @@ static int do_buy(Portfolio *you, const Market *m) {
     return 1;
 }
 
-static int do_sell(Portfolio *you, const Market *m) {
+static int do_sell(Game *g) {
+    Portfolio *you = &g->you;
+    const Market *m = &g->market;
     long s;
     if (!pick_stock(&s)) {
         return 0;
@@ -136,7 +140,7 @@ static int do_sell(Portfolio *you, const Market *m) {
 
     long fees_before = you->fees_paid;
     char fee[32];
-    switch (portfolio_sell(you, m, (int)s, qty)) {
+    switch (game_sell(g, (int)s, qty)) {
         case TRADE_OK:
             format_money(you->fees_paid - fees_before, fee, sizeof fee);
             printf("Sold %ld %s (fee %s).\n", qty, symbol, fee);
@@ -285,10 +289,10 @@ int main(int argc, char **argv) {
                 running = do_chart(m);
                 break;
             case MENU_BUY:
-                running = do_buy(you, m);
+                running = do_buy(&game);
                 break;
             case MENU_SELL:
-                running = do_sell(you, m);
+                running = do_sell(&game);
                 break;
             case MENU_PORTFOLIO:
                 print_portfolio(you, m);
